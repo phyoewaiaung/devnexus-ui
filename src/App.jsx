@@ -1,35 +1,35 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { Routes, Route } from 'react-router-dom';
+import PrivateRoute from './components/PrivateRoute';
 
-function App() {
-  const [count, setCount] = useState(0)
+import FeedPage from './pages/FeedPage';
+import ProfilePage from './pages/ProfilePage';
+import LoginPage from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
+import NavBar from './components/Navbar';
+import EditProfilePage from './pages/EditProfilePage';
 
+export default function App() {
   return (
     <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
-}
+      <NavBar />
+      <div style={{ maxWidth: 640, margin: '16px auto', padding: '0 12px' }}>
+        <Routes>
+          <Route path="/" element={<FeedPage />} />
+          <Route path="/u/:username" element={<ProfilePage />} />
+          <Route element={<PrivateRoute />}>
+            <Route path="/settings/profile" element={<EditProfilePage />} />
+          </Route>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
 
-export default App
+          {/* Example protected routes */}
+          <Route element={<PrivateRoute />}>
+            {/* put /edit-profile or /compose here if you want to protect them */}
+          </Route>
+
+          <Route path="*" element={<div>Not found</div>} />
+        </Routes>
+      </div>
+    </>
+  );
+}
