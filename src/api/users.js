@@ -43,3 +43,15 @@ export const uploadAvatar = (file) => {
     headers: { 'Content-Type': 'multipart/form-data' },
   }).then(r => r.data);
 };
+
+export const uploadCover = (file) => {
+  const fd = new FormData();
+  fd.append('cover', file);
+  return client.post('/api/users/me/cover', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data); // -> { coverUrl }
+};
+
+// optional helper to remove cover via PATCH:
+export const clearCover = () =>
+  client.patch('/api/users/me', { coverUrl: null }).then(r => r.data);
