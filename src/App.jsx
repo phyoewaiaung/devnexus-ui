@@ -11,7 +11,7 @@ import EditProfilePage from "./pages/EditProfilePage";
 import NotificationsPage from "./pages/NotificationsPage";
 
 // layout
-import NavBar from "./components/Navbar";
+import NavBar from "@/components/NavBar";
 import PrivateRoute from "./components/PrivateRoute";
 
 // shadcn/ui
