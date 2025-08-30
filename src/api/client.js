@@ -3,13 +3,13 @@ import axios from "axios";
 import { tokenStore } from "../lib/token";
 
 export const client = axios.create({
-  baseURL: "",
+  baseURL: "http://localhost:5000",
   withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
 
 const refreshClient = axios.create({
-  baseURL: "",
+  baseURL: "http://localhost:5000",
   withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
