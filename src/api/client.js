@@ -1,54 +1,56 @@
-import axios from 'axios';
-import { tokenStore } from '../lib/token';
+// src/lib/client.js
+import axios from "axios";
+import { tokenStore } from "../lib/token";
 
-// Use Vite proxy: baseURL '' means calls like /api/... go to backend via proxy
 export const client = axios.create({
-  baseURL: '',
-  withCredentials: true, // needed for refresh cookie
-  headers: { 'Content-Type': 'application/json' },
-});
-
-// separate client without auth header for refresh to avoid loops
-const refreshClient = axios.create({
-  baseURL: '',
+  baseURL: "",
   withCredentials: true,
-  headers: { 'Content-Type': 'application/json' },
+  headers: { "Content-Type": "application/json" },
 });
 
-// Attach Authorization for normal requests
-client.interceptors.request.use((config) => {
-  const t = tokenStore.get();
-  if (t && !config.headers?.Authorization) {
-    config.headers = config.headers || {};
-    config.headers.Authorization = `Bearer ${t}`;
-  }
-  return config;
+const refreshClient = axios.create({
+  baseURL: "",
+  withCredentials: true,
+  headers: { "Content-Type": "application/json" },
 });
 
-// If 401, try refresh once, then retry original
-client.interceptors.response.use(
-  (res) => res,
-  async (error) => {
-    const original = error.config || {};
-    const status = error?.response?.status;
-
-    if (status === 401 && !original._retry) {
-      original._retry = true;
-      try {
-        const r = await refreshClient.post('/api/users/refresh', {});
-        const newAccess = r.data?.accessToken;
-        if (newAccess) {
-          tokenStore.set(newAccess);
-          original.headers = original.headers || {};
-          original.headers.Authorization = `Bearer ${newAccess}`;
-          return client(original);
-        }
-      } catch (e) {
-        console.error('Refresh failed:', e);
-        // fall through
-      }
-      tokenStore.set(null);
+export function setupInterceptors(navigate) {
+  // attach auth header
+  client.interceptors.request.use((config) => {
+    const t = tokenStore.get();
+    if (t && !config.headers?.Authorization) {
+      config.headers = config.headers || {};
+      config.headers.Authorization = `Bearer ${t}`;
     }
-    return Promise.reject(error);
-  }
-);
+    return config;
+  });
+
+  // refresh logic
+  client.interceptors.response.use(
+    (res) => res,
+    async (error) => {
+      const original = error.config || {};
+      const status = error?.response?.status;
+
+      if (status === 401 && !original._retry) {
+        original._retry = true;
+        try {
+          const r = await refreshClient.post("/api/users/refresh", {});
+          const newAccess = r.data?.accessToken;
+          if (newAccess) {
+            tokenStore.set(newAccess);
+            original.headers = original.headers || {};
+            original.headers.Authorization = `Bearer ${newAccess}`;
+            return client(original);
+          }
+        } catch (e) {
+          console.error("Refresh failed:", e);
+        }
+        tokenStore.set(null);
+        navigate("/login", { replace: true }); // 🔑 redirect to login
+      }
+
+      return Promise.reject(error);
+    }
+  );
+}

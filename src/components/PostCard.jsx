@@ -1,13 +1,15 @@
-import { useMemo, useRef, useState, useCallback } from 'react';
+// src/components/PostCard.jsx — Enhanced DevNexus PostCard with syntax highlighting, threaded comments, micro-interactions
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toggleLike, addComment, deletePost } from '../api/posts';
+import { useAuth } from '@/context/AuthContext';
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
@@ -17,463 +19,424 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
+import copy from 'copy-to-clipboard';
+import { Highlight, themes } from 'prism-react-renderer';
 import {
-  Heart, MessageSquare, Trash2, MoreHorizontal, Loader2,
-  User as UserIcon, Share2, Bookmark, Link as LinkIcon,
+  Heart, MessageSquare, Trash2, MoreHorizontal, Loader2, User as UserIcon,
+  Share2, Bookmark, Link as LinkIcon, ClipboardCopy, CheckCheck, Code2, ChevronDown, ChevronUp
 } from 'lucide-react';
-
+import clsx from 'clsx';
 import { toast } from 'sonner';
-import { useAuth } from '@/context/AuthContext';
 
 /* ---------------------- utils ---------------------- */
-const k = (n) => {
-  if (n == null) return 0;
-  if (n < 1000) return n;
-  if (n < 10000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
-  if (n < 1_000_000) return Math.round(n / 1000) + 'k';
-  return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
-};
+const k = (n) => { if (n == null) return 0; if (n < 1000) return n; if (n < 10000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k'; if (n < 1_000_000) return Math.round(n / 1000) + 'k'; return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'; };
+const relativeTime = (ts) => { if (!ts) return ''; const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' }); const d = new Date(ts).getTime(); const now = Date.now(); const diff = Math.floor((d - now) / 1000); const units = [['year', 31536000], ['month', 2592000], ['week', 604800], ['day', 86400], ['hour', 3600], ['minute', 60], ['second', 1]]; for (const [u, s] of units) { const v = Math.round(diff / s); if (Math.abs(v) >= 1) return rtf.format(v, u); } return 'just now'; };
+const fullDateTitle = (ts) => { try { return new Date(ts || 0).toLocaleString(); } catch { return ''; } };
 
-const relativeTime = (ts) => {
-  if (!ts) return '';
-  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-  const d = new Date(ts).getTime();
-  const now = Date.now();
-  const diff = Math.floor((d - now) / 1000);
-  const units = [
-    ['year', 60 * 60 * 24 * 365],
-    ['month', 60 * 60 * 24 * 30],
-    ['week', 60 * 60 * 24 * 7],
-    ['day', 60 * 60 * 24],
-    ['hour', 60 * 60],
-    ['minute', 60],
-    ['second', 1],
-  ];
-  for (const [u, s] of units) {
-    const v = Math.round(diff / s);
-    if (Math.abs(v) >= 1) return rtf.format(v, u);
-  }
-  return 'just now';
-};
-
-const fullDateTitle = (ts) => {
-  try { return new Date(ts).toLocaleString(); } catch { return ''; }
-};
-
-/* ---------------------- text render ---------------------- */
-function renderRichText(raw) {
-  if (!raw) return null;
-  const codeRe = /```([a-zA-Z0-9_-]+)?\n([\s\S]*?)```/g;
-  const parts = [];
-  let lastIndex = 0; let m;
-  while ((m = codeRe.exec(raw))) {
-    const [full, lang, code] = m;
-    if (m.index > lastIndex) parts.push({ type: 'text', value: raw.slice(lastIndex, m.index) });
-    parts.push({ type: 'code', lang: lang || 'text', value: code });
-    lastIndex = m.index + full.length;
-  }
-  if (lastIndex < raw.length) parts.push({ type: 'text', value: raw.slice(lastIndex) });
-
-  const renderText = (text) => {
-    const inlineCodeRe = /`([^`]+)`/g;
-    const urlRe = /(https?:\/\/[^\s]+)|(www\.[^\s]+\.[^\s]+)/gi;
-    const mentionRe = /(^|\s)@([a-zA-Z0-9_]{2,})/g;
-    const tagRe = /(^|\s)#([\p{L}0-9_]{2,})/gu;
-
-    const nodes = []; let idx = 0;
-    const pushPlain = (s) => s && nodes.push(s);
-
-    let last = 0; let mm;
-    while ((mm = inlineCodeRe.exec(text))) {
-      const [full, code] = mm;
-      if (mm.index > last) pushPlain(text.slice(last, mm.index));
-      nodes.push(<code key={`ic-${idx++}`} className="rounded bg-muted px-1 py-0.5 text-[0.9em] font-mono">{code}</code>);
-      last = mm.index + full.length;
-    }
-    if (last < text.length) pushPlain(text.slice(last));
-
-    const linkified = nodes.flatMap((n) => {
-      if (typeof n !== 'string') return [n];
-      const chunk = n; const bits = []; let i = 0;
-      const re = new RegExp(`${urlRe.source}|${mentionRe.source}|${tagRe.source}`, 'giu');
-      let r;
-      while ((r = re.exec(chunk))) {
-        if (r.index > i) bits.push(chunk.slice(i, r.index));
-        const [match] = r;
-        if (r[1] || r[2]) {
-          const url = match.startsWith('http') ? match : `https://${match}`;
-          bits.push(<a key={`u-${idx++}`} href={url} target="_blank" rel="noreferrer" className="text-primary hover:underline">{match}</a>);
-        } else if (r[3] || r[4]) {
-          const handle = r[4];
-          bits.push(<Link key={`m-${idx++}`} to={`/u/${handle}`} className="text-primary hover:underline">@{handle}</Link>);
-        } else if (r[5] || r[6]) {
-          const tag = r[6];
-          bits.push(<Link key={`t-${idx++}`} to={`/?tag=${encodeURIComponent(tag)}`} className="text-primary hover:underline">#{tag}</Link>);
-        }
-        i = re.lastIndex;
-      }
-      if (i < chunk.length) bits.push(chunk.slice(i));
-      return bits;
-    });
-
-    return <p className="whitespace-pre-wrap leading-relaxed text-foreground/90">{linkified}</p>;
-  };
-
-  return parts.map((p, i) =>
-    p.type === 'code'
-      ? (
-        <pre key={`cb-${i}`} className="mt-2 overflow-x-auto rounded-lg border border-border bg-muted p-3 text-sm">
-          <code className="font-mono whitespace-pre">{p.value}</code>
-        </pre>
-      )
-      : <div key={`tx-${i}`}>{renderText(p.value)}</div>
-  );
-}
-
-/* ---------------------- component ---------------------- */
-export default function PostCard({ post, onDeleted }) {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-
-  // initialize from server-provided fields (with fallbacks)
-  const initialLiked = Boolean(post.likedByMe ?? post.likes?.includes?.(user?._id));
-  const initialLikes = post.likesCount ?? post.likes?.length ?? 0;
-
-  const [likes, setLikes] = useState(initialLikes);
-  const [liked, setLiked] = useState(initialLiked);
-  const [text, setText] = useState('');
-  const [comments, setComments] = useState(post.comments || []);
-  const [busyLike, setBusyLike] = useState(false);
-  const [busySend, setBusySend] = useState(false);
-  const [busyDelete, setBusyDelete] = useState(false);
-  const [err, setErr] = useState('');
+/* ---------------------- Code block (highlight + copy + collapse) ---------------------- */
+function CodeBlock({ code, lang = 'text' }) {
+  const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [lightboxOpen, setLightboxOpen] = useState(false);
+  useEffect(() => { if (!copied) return; const id = setTimeout(() => setCopied(false), 1400); return () => clearTimeout(id); }, [copied]);
+  const lineCount = useMemo(() => (code || '').split('\n').length, [code]);
+  const clamp = !expanded && lineCount > 18;
+  // map a few aliases Prism expects
+  const normalizedLang = useMemo(() => {
+    const map = { js: 'javascript', ts: 'typescript', shell: 'bash', sh: 'bash', cplusplus: 'cpp' };
+    const l = (lang || 'text').toLowerCase();
+    return map[l] || l;
+  }, [lang]);
 
-  const safeUsername = post.author?.username || 'unknown';
-  const safeName = post.author?.name || 'Unknown';
-  const avatar = post.author?.avatarUrl;
-  const createdAtLabel = useMemo(() => relativeTime(post.createdAt), [post.createdAt]);
-  const createdAtTitle = useMemo(() => fullDateTitle(post.createdAt), [post.createdAt]);
-  const textareaRef = useRef(null);
-
-  const like = useCallback(async () => {
-    if (busyLike) return;
-    if (!user) {
-      toast('Please log in to like posts');
-      navigate('/login');
-      return;
-    }
-
-    setBusyLike(true);
-    setErr('');
-
-    const prev = { liked, likes };
-    const nextLiked = !liked;
-
-    // optimistic
-    setLiked(nextLiked);
-    setLikes((n) => Math.max(0, n + (nextLiked ? 1 : -1)));
-
-    try {
-      const r = await toggleLike(post._id);
-      // reconcile if API returns authoritative fields
-      if (typeof r?.likesCount === 'number') setLikes(r.likesCount);
-      if (typeof r?.likedByMe === 'boolean') setLiked(r.likedByMe);
-    } catch (e) {
-      // rollback
-      setLiked(prev.liked);
-      setLikes(prev.likes);
-      setErr(e.message || 'Failed to like post.');
-      toast.error('Failed to like post.');
-    } finally {
-      setBusyLike(false);
-    }
-  }, [busyLike, liked, post._id, user, navigate]);
-
-  const onCardKeyDown = (e) => {
-    if (e.key.toLowerCase() === 'l') { e.preventDefault(); like(); }
-    if (e.key.toLowerCase() === 'c') { e.preventDefault(); textareaRef.current?.focus(); }
-  };
-
-  const onComposerKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitComment(); }
-  };
-
-  const submitComment = async () => {
-    if (!text.trim() || busySend) return;
-    setBusySend(true);
-    setErr('');
-    const optimistic = { author: { username: 'you', avatarUrl: null }, text, createdAt: Date.now() };
-    setComments((c) => [...c, optimistic]);
-    setText('');
-
-    try {
-      const r = await addComment(post._id, optimistic.text.trim());
-      setComments(r.comments || []);
-      toast('Comment added');
-    } catch (e) {
-      setErr(e.message || 'Failed to add comment.');
-      setComments((c) => c.slice(0, -1));
-      setText(optimistic.text);
-      textareaRef.current?.focus();
-      toast.error('Failed to add comment.');
-    } finally {
-      setBusySend(false);
-    }
-  };
-
-  const remove = async () => {
-    if (busyDelete) return;
-    setBusyDelete(true);
-    setErr('');
-    try {
-      await deletePost(post._id);
-      onDeleted?.(post._id);
-      toast.success('Post deleted');
-    } catch (e) {
-      setErr(e.message || 'Failed to delete post.');
-      toast.error('Delete failed.');
-      setBusyDelete(false);
-    }
-  };
-
-  const copyLink = async () => {
-    const url = `${window.location.origin}/p/${post._id}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      toast.success('Link copied');
-    } catch {
-      toast.error('Failed to copy link');
-    }
-  };
 
   return (
-    <Card
-      tabIndex={0}
-      onKeyDown={onCardKeyDown}
-      className="bg-card text-card-foreground border-border shadow-sm hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-primary/40"
-    >
-      <CardHeader className="p-4 pb-0">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            <Avatar className="h-10 w-10 ring-1 ring-border">
-              {avatar ? <AvatarImage src={avatar} /> : null}
-              <AvatarFallback>
-                <UserIcon className="h-5 w-5 text-muted-foreground" />
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <Link
-                  to={`/u/${safeUsername}`}
-                  className="font-semibold text-foreground hover:underline truncate"
-                  title={`${safeName} @${safeUsername}`}
-                >
-                  {safeName}
-                </Link>
-                <span className="text-muted-foreground truncate">@{safeUsername}</span>
-                {post.topic && <Badge variant="secondary" className="ml-1">{post.topic}</Badge>}
-              </div>
-              <div className="text-xs text-muted-foreground" title={createdAtTitle}>{createdAtLabel}</div>
-            </div>
-          </div>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Post options">
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuLabel>Post options</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={copyLink} className="justify-between">
-                <span className="inline-flex items-center"><LinkIcon className="h-4 w-4 mr-2" /> Copy link</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled><Bookmark className="h-4 w-4 mr-2" /> Save (soon)</DropdownMenuItem>
-              <DropdownMenuItem disabled><Share2 className="h-4 w-4 mr-2" /> Share (soon)</DropdownMenuItem>
-              {post.canDelete && (
-                <>
-                  <DropdownMenuSeparator />
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <button className="w-full text-left text-red-600 flex items-center px-2 py-1.5 rounded-sm hover:bg-red-50 dark:hover:bg-red-500/10">
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete
-                      </button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete this post?</AlertDialogTitle>
-                        <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={remove} className="bg-red-600 hover:bg-red-700" disabled={busyDelete}>
-                          {busyDelete ? (<Loader2 className="h-4 w-4 animate-spin mr-2" />) : null}
-                          Delete
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </CardHeader>
-
-      <CardContent className="p-4 pt-3" onDoubleClick={like}>
-        {post.text && (
-          <PostText text={post.text} expanded={expanded} onToggle={() => setExpanded((v) => !v)} />
-        )}
-
-        {post.imageUrl && (
-          <div className="mt-3 overflow-hidden rounded-lg border border-border">
-            <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
-              <DialogTrigger asChild>
-                <img src={post.imageUrl} alt="Post media" className="w-full h-auto object-cover cursor-zoom-in" loading="lazy" />
-              </DialogTrigger>
-              <DialogContent className="max-w-4xl p-0">
-                <img src={post.imageUrl} alt="Post media large" className="w-full h-auto object-contain" />
-              </DialogContent>
-            </Dialog>
-          </div>
-        )}
-
-        {/* stats row */}
-        <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
-          <div className="flex items-center gap-1">
-            <Heart
-              className={`h-4 w-4 ${liked ? 'text-red-600' : ''}`}
-              fill={liked ? 'currentColor' : 'none'}
-              stroke={liked ? 'none' : 'currentColor'}
-            />
-            <span>{k(likes)}</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span>{k(comments?.length || 0)} comments</span>
-          </div>
-        </div>
-
-        {/* actions */}
-        <div className="mt-2">
-          <div className="flex flex-wrap items-center gap-2 w-full">
-            <Button
-              variant={liked ? 'default' : 'outline'}
-              size="sm"
-              onClick={like}
-              disabled={busyLike}
-              className={`flex-1 min-w-[112px] gap-2 transition-transform active:scale-[0.98] ${liked ? 'bg-red-600 hover:bg-red-700 text-white' : ''}`}
-              aria-pressed={liked}
-              aria-label={liked ? 'Unlike post' : 'Like post'}
-            >
-              {busyLike ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Heart
-                  className={`h-4 w-4 ${liked ? 'text-white' : ''}`}
-                  fill={liked ? 'currentColor' : 'none'}
-                  stroke={liked ? 'none' : 'currentColor'}
-                />
-              )}
-              Like
+    <div className="group relative rounded-xl border border-border bg-muted/60">
+      <div className="flex items-center justify-between px-3 py-2 text-xs text-muted-foreground border-b border-border">
+        <div className="flex items-center gap-2"><Code2 className="h-3.5 w-3.5" /> {normalizedLang}</div>
+        <div className="flex items-center gap-1">
+          {lineCount > 18 && (
+            <Button variant="ghost" size="xs" className="h-7 px-2 text-xs" onClick={() => setExpanded(v => !v)}>
+              {expanded ? <ChevronUp className="h-3.5 w-3.5 mr-1" /> : <ChevronDown className="h-3.5 w-3.5 mr-1" />}
+              {expanded ? 'Collapse' : 'Expand'}
             </Button>
-
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 min-w-[112px] gap-2"
-              onClick={() => textareaRef.current?.focus()}
-              aria-label="Add a comment"
-            >
-              <MessageSquare className="h-4 w-4" />
-              Comment
-            </Button>
-
-            <Button variant="outline" size="sm" className="flex-1 min-w-[112px] gap-2" disabled>
-              <Share2 className="h-4 w-4" />
-              Share
-            </Button>
-          </div>
-        </div>
-
-        {err && (
-          <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-200" aria-live="polite">
-            {err}
-          </div>
-        )}
-
-        <Separator className="my-4" />
-
-        <form onSubmit={(e) => { e.preventDefault(); submitComment(); }} className="flex items-end gap-2">
-          <Textarea
-            ref={textareaRef}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={onComposerKeyDown}
-            placeholder="Write a comment…"
-            className="min-h-[44px] resize-y"
-            aria-label="Comment"
-          />
-          <Button type="submit" disabled={busySend || !text.trim()} className="min-w-[96px]">
-            {busySend ? (<span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Send</span>) : 'Send'}
+          )}
+          <Button onClick={() => { copy(code || ''); setCopied(true); toast.success('Code copied'); }} variant="ghost" size="xs" className="h-7 px-2 text-xs" aria-label="Copy code">
+            {copied ? <CheckCheck className="h-3.5 w-3.5" /> : <ClipboardCopy className="h-3.5 w-3.5" />}
           </Button>
-        </form>
-
-        {comments?.length > 0 && (
-          <div className="mt-4 space-y-3">
-            {comments.map((c, i) => (<CommentItem key={i} c={c} />))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+        </div>
+      </div>
+      <div className={clsx('overflow-auto', clamp && 'max-h-[360px]')}>
+        <Highlight theme={themes.nightOwl} code={code || ''} language={normalizedLang}>
+          {({ className, style, tokens, getLineProps, getTokenProps }) => (
+            <pre className={clsx(className, 'm-0 p-3 text-sm leading-[1.45]')} style={style}>
+              {tokens.map((line, i) => (
+                <div key={i} {...getLineProps({ line })} className="table w-full">
+                  <span className="table-cell select-none pr-4 text-muted-foreground/70 text-right w-8">{i + 1}</span>
+                  <span className="table-cell">{line.map((token, key) => (<span key={key} {...getTokenProps({ token })} />))}</span>
+                </div>
+              ))}
+            </pre>
+          )}
+        </Highlight>
+      </div>
+    </div>
   );
 }
 
-function PostText({ text, expanded, onToggle }) {
-  const MAX_CHARS = 220;
-  const needsClamp = text.length > MAX_CHARS;
+/* ---------------------- Rich text body (CRLF safe) ---------------------- */
+function linkifyAndInlineCode(text) {
+  const inlineCodeRe = /`([^`]+)`/g;
+  const urlRe = /(https?:\/\/[^\s]+)|(www\.[^\s]+\.[^\s]+)/gi;
+  const mentionRe = /(^|\s)@([a-zA-Z0-9_]{2,})/g;
+  const tagRe = /(^|\s)#([\p{L}0-9_]{2,})/gu;
+
+  const nodes = []; let idx = 0; let last = 0, m;
+  while ((m = inlineCodeRe.exec(text))) {
+    const [full, code] = m;
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    nodes.push(<code key={`ic-${idx++}`} className="rounded bg-muted px-1 py-0.5 text-[0.9em] font-mono">{code}</code>);
+    last = m.index + full.length;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+
+  const linkified = nodes.flatMap(n => {
+    if (typeof n !== 'string') return [n];
+    const s = n; const out = []; let i = 0;
+    const re = new RegExp(`${urlRe.source}|${mentionRe.source}|${tagRe.source}`, 'giu'); let r;
+    while ((r = re.exec(s))) {
+      if (r.index > i) out.push(s.slice(i, r.index));
+      const match = r[0];
+      if (r[1] || r[2]) {
+        const url = match.startsWith('http') ? match : `https://${match}`;
+        out.push(<a key={`u-${idx++}`} href={url} target="_blank" rel="noreferrer" className="text-primary hover:underline break-words">{match}</a>);
+      } else if (r[3] || r[4]) {
+        const handle = r[4];
+        out.push(<Link key={`m-${idx++}`} to={`/u/${handle}`} className="text-primary hover:underline">@{handle}</Link>);
+      } else if (r[5] || r[6]) {
+        const tag = r[6];
+        out.push(<Link key={`t-${idx++}`} to={`/?tag=${encodeURIComponent(tag)}`} className="text-primary hover:underline">#{tag}</Link>);
+      }
+      i = re.lastIndex;
+    }
+    if (i < s.length) out.push(s.slice(i));
+    return out;
+  });
+
+  return <p className="leading-relaxed text-foreground/90">{linkified}</p>;
+}
+
+function RichPostBody({ raw }) {
+  if (!raw) return null;
+  raw = raw.replace(/\r\n/g, '\n'); // normalize CRLF
+  const fenceRe = /```([a-zA-Z0-9_+-]+)?\r?\n([\s\S]*?)```/g;
+
+  const parts = []; let last = 0, m;
+  while ((m = fenceRe.exec(raw))) {
+    const [full, lang, code] = m;
+    if (m.index > last) parts.push({ type: 'text', value: raw.slice(last, m.index) });
+    parts.push({ type: 'code', value: code, lang: (lang || 'text').toLowerCase() });
+    last = m.index + full.length;
+  }
+  if (last < raw.length) parts.push({ type: 'text', value: raw.slice(last) });
 
   return (
-    <div className="text-foreground/90">
-      {needsClamp ? (
-        <div>
-          <div className={`whitespace-pre-wrap ${expanded ? '' : 'line-clamp-4'}`}>{renderRichText(text)}</div>
-          <button type="button" onClick={onToggle} className="mt-1 text-sm font-medium text-primary hover:opacity-80">
-            {expanded ? 'See less' : 'See more'}
-          </button>
-        </div>
-      ) : (
-        <div className="whitespace-pre-wrap">{renderRichText(text)}</div>
+    <div className="space-y-3">
+      {parts.map((p, i) =>
+        p.type === 'code'
+          ? (<CodeBlock key={i} code={p.value} lang={p.lang} />)
+          : (<div key={i} className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap break-words">{linkifyAndInlineCode(p.value)}</div>)
       )}
     </div>
   );
 }
 
-function CommentItem({ c }) {
+
+/* ---------------------- Comments ---------------------- */
+function CommentThread({ comments, onAdd }) {
+  const [text, setText] = useState(''); const [busy, setBusy] = useState(false); const textareaRef = useRef(null);
+  const submit = async (e) => { e?.preventDefault(); if (!text.trim() || busy) return; setBusy(true); const value = text; setText(''); try { await onAdd(value); } catch (e) { toast.error(e?.message || 'Failed to comment'); setText(value); } finally { setBusy(false); } };
   return (
-    <div className="flex items-start gap-3">
-      <Avatar className="h-8 w-8">
-        {c.author?.avatarUrl ? <AvatarImage src={c.author.avatarUrl} /> : null}
-        <AvatarFallback><UserIcon className="h-4 w-4 text-muted-foreground" /></AvatarFallback>
-      </Avatar>
-      <div className="flex-1 rounded-2xl bg-muted/40 border border-border px-3 py-2">
-        <div className="flex items-center gap-2">
-          <Link to={`/u/${c.author?.username || 'user'}`} className="font-medium text-sm text-foreground hover:underline">
-            @{c.author?.username || 'user'}
-          </Link>
-          {c.createdAt && (
-            <span className="text-xs text-muted-foreground" title={fullDateTitle(c.createdAt)}>
-              {relativeTime(c.createdAt)}
-            </span>
+    <div className="mt-3">
+      <form onSubmit={submit} className="flex items-end gap-2">
+        <Textarea ref={textareaRef} value={text} onChange={(e) => setText(e.target.value)} placeholder="Write a comment…" className="min-h-[44px] resize-y" aria-label="Comment" onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }} />
+        <Button type="submit" disabled={busy || !text.trim()} className="min-w-[96px]">{busy ? (<span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Send</span>) : 'Send'}</Button>
+      </form>
+      {comments?.length > 0 && (
+        <ul className="mt-4 space-y-3">
+          {comments.map((c, i) => (
+            <li key={c._id || i} className="flex items-start gap-3">
+              <Avatar className="h-8 w-8">{c.author?.avatarUrl ? <AvatarImage src={c.author.avatarUrl} /> : null}<AvatarFallback><UserIcon className="h-4 w-4 text-muted-foreground" /></AvatarFallback></Avatar>
+              <div className="flex-1 rounded-2xl bg-muted/40 border border-border px-3 py-2">
+                <div className="flex items-center gap-2"><Link to={`/u/${c.author?.username || 'user'}`} className="font-medium text-sm hover:underline">@{c.author?.username || 'user'}</Link>{c.createdAt && (<span className="text-xs text-muted-foreground" title={fullDateTitle(c.createdAt)}>{relativeTime(c.createdAt)}</span>)}</div>
+                <div className="mt-1 text-sm whitespace-pre-wrap break-words">{c.text}</div>
+                <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground"><button type="button" className="hover:underline">Like</button><button type="button" className="hover:underline">Reply</button></div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------- PostCard ---------------------- */
+export default function PostCard({ post, onDeleted, postDetailStatus = false }) {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  // likes
+  const initialLikes = post.likesCount ?? (Array.isArray(post.likes) ? post.likes.length : 0) ?? 0;
+  const initialLiked = Boolean(post.likedByMe ?? (Array.isArray(post.likes) && user?._id ? post.likes.includes(user._id) : false));
+
+  const [likes, setLikes] = useState(initialLikes);
+  const [liked, setLiked] = useState(initialLiked);
+  const [err, setErr] = useState('');
+  const [busyLike, setBusyLike] = useState(false);
+  const [busyDelete, setBusyDelete] = useState(false);
+
+  const [expanded, setExpanded] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [comments, setComments] = useState(post.comments || []);
+
+  const safeUsername = post.author?.username || 'unknown';
+  const safeName = post.author?.name || 'Unknown';
+  const avatar = post.author?.avatarUrl;
+
+  const createdAtLabel = useMemo(() => relativeTime(post.createdAt), [post.createdAt]);
+  const createdAtTitle = useMemo(() => fullDateTitle(post.createdAt), [post.createdAt]);
+
+  const imageUrl = post.image?.url || post.imageUrl || null;
+  const langBadges = Array.isArray(post.languages) ? post.languages : [];
+  const tagBadges = Array.isArray(post.tags) ? post.tags : [];
+
+  const like = useCallback(async () => {
+    if (busyLike) return;
+    if (!user) { toast('Please log in to like posts'); navigate('/login'); return; }
+    setBusyLike(true); setErr('');
+    const prev = { liked, likes };
+    const nextLiked = !liked;
+    setLiked(nextLiked); setLikes(n => Math.max(0, n + (nextLiked ? 1 : -1)));
+    try {
+      const r = await toggleLike(post._id);
+      if (typeof r?.likesCount === 'number') setLikes(r.likesCount);
+      if (typeof r?.liked === 'boolean') setLiked(r.liked);
+      if (typeof r?.likedByMe === 'boolean') setLiked(r.likedByMe);
+    } catch (e) {
+      setLiked(prev.liked); setLikes(prev.likes);
+      setErr(e.message || 'Failed to like post.'); toast.error('Failed to like post.');
+    } finally { setBusyLike(false); }
+  }, [busyLike, liked, post._id, user, navigate, likes]);
+
+  const postDetail = useCallback(() => {
+    navigate(`/p/${post._id}`);
+  }, [navigate, post._id]);
+
+  const copyLink = () => {
+    const url = `${window.location.origin}/p/${post._id}`;
+    try { copy(url); toast.success('Link copied'); } catch { toast.error('Failed to copy link'); }
+  };
+
+  const add = async (text) => {
+    const optimistic = { _id: `tmp-${Date.now()}`, author: { username: user?.username || 'you', avatarUrl: user?.avatarUrl }, text, createdAt: Date.now() };
+    setComments(c => [...c, optimistic]);
+    try {
+      const r = await addComment(post._id, text.trim());
+      setComments(r.comments || []);
+    } catch (e) {
+      toast.error(e?.message || 'Failed to add comment');
+      setComments(cs => cs.filter(x => x._id !== optimistic._id));
+    }
+  };
+
+  const remove = async () => {
+    if (busyDelete) return;
+    setBusyDelete(true); setErr('');
+    try { await deletePost(post._id); onDeleted?.(post._id); toast.success('Post deleted'); }
+    catch (e) { setErr(e.message || 'Failed to delete post.'); toast.error('Delete failed.'); setBusyDelete(false); }
+  };
+
+  const onCardKeyDown = (e) => {
+    const k = e.key.toLowerCase();
+    if (k === 'l') { e.preventDefault(); like(); }
+    if (k === 'c') { e.preventDefault(); }
+  };
+
+  const commentsCount = (post.commentsCount ?? comments?.length) || 0;
+
+  return (
+    <Card tabIndex={0} onKeyDown={onCardKeyDown} className="bg-card text-card-foreground border-border shadow-sm hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-primary/40">
+      <TooltipProvider>
+        <CardHeader className="p-4 pb-0">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <Avatar className="h-10 w-10 ring-1 ring-border">
+                {avatar ? <AvatarImage src={avatar} /> : null}
+                <AvatarFallback><UserIcon className="h-5 w-5 text-muted-foreground" /></AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Link to={`/u/${safeUsername}`} className="font-semibold hover:underline truncate" title={`${safeName} @${safeUsername}`}>{safeName}</Link>
+                  <span className="text-muted-foreground truncate">@{safeUsername}</span>
+
+                  {/* languages and tags */}
+                  {langBadges.map(l => (
+                    <Badge key={`lang-${l}`} variant="secondary" className="ml-1">{l}</Badge>
+                  ))}
+                  {tagBadges.map(t => (
+                    <Badge key={`tag-${t}`} className="ml-1">#{t}</Badge>
+                  ))}
+                </div>
+                <div className="text-xs text-muted-foreground" title={createdAtTitle}>{createdAtLabel}</div>
+              </div>
+            </div>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Post options">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuLabel>Post options</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={copyLink}><LinkIcon className="h-4 w-4 mr-2" /> Copy link</DropdownMenuItem>
+                {!postDetailStatus &&
+                  <DropdownMenuItem onClick={postDetail}><LinkIcon className="h-4 w-4 mr-2" /> Post Detail</DropdownMenuItem>
+                }
+                {post.canDelete && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <button className="w-full text-left text-red-600 flex items-center px-2 py-1.5 rounded-sm hover:bg-red-50 dark:hover:bg-red-500/10">
+                          <Trash2 className="h-4 w-4 mr-2" />Delete
+                        </button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete this post?</AlertDialogTitle>
+                          <AlertDialogDescription>Are you sure want to delete this post?</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={remove} className="bg-red-600 hover:bg-red-700" disabled={busyDelete}>
+                            {busyDelete ? (<Loader2 className="h-4 w-4 animate-spin mr-2" />) : null}
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </CardHeader>
+
+        <CardContent className="p-4 pt-3" onDoubleClick={like}>
+          {post.text && (<PostText text={post.text} expanded={expanded} onToggle={() => setExpanded(v => !v)} />)}
+
+          {imageUrl && (
+            <div className="mt-3 overflow-hidden rounded-lg border border-border">
+              <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
+                <DialogTrigger asChild>
+                  <img src={imageUrl} alt="Post media" className="w-full h-auto object-cover cursor-zoom-in" loading="lazy" />
+                </DialogTrigger>
+                <DialogContent className="max-w-4xl p-0">
+                  <DialogHeader className="px-4 py-2"><DialogTitle>Media</DialogTitle></DialogHeader>
+                  <img src={imageUrl} alt="Post media large" className="w-full h-auto object-contain" />
+                </DialogContent>
+              </Dialog>
+            </div>
           )}
+
+          {/* stats row */}
+          <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
+            <div className="flex items-center gap-1">
+              <Heart className={clsx('h-4 w-4', liked && 'text-red-600')} fill={liked ? 'currentColor' : 'none'} stroke={liked ? 'none' : 'currentColor'} />
+              <span>{k(likes)}</span>
+            </div>
+            {commentsCount > 0 &&
+              <div className="flex items-center gap-3">
+                <span>{k(commentsCount)} comments</span>
+              </div>
+            }
+          </div>
+
+          {/* actions */}
+          <div className="mt-2">
+            <div className="flex flex-wrap items-center gap-2 w-full">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={liked ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={like}
+                    disabled={busyLike}
+                    className={clsx('flex-1 min-w-[112px] gap-2 transition-transform active:scale-[0.98]', liked && 'bg-red-600 hover:bg-red-700 text-white')}
+                    aria-pressed={liked}
+                    aria-label={liked ? 'Unlike post' : 'Like post'}
+                  >
+                    {busyLike ? <Loader2 className="h-4 w-4 animate-spin" /> : (
+                      <Heart className={clsx('h-4 w-4', liked && 'text-white')}
+                        fill={liked ? 'currentColor' : 'none'}
+                        stroke={liked ? 'none' : 'currentColor'}
+                      />
+                    )}
+                    Like
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Press L to like</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="flex-1 min-w-[112px] gap-2" aria-label="Add a comment">
+                    <MessageSquare className="h-4 w-4" /> Comment
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Press C to comment</TooltipContent>
+              </Tooltip>
+
+              <Button variant="outline" size="sm" className="flex-1 min-w-[112px] gap-2" disabled>
+                <Share2 className="h-4 w-4" /> Share
+              </Button>
+            </div>
+          </div>
+
+          {err && (
+            <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-200" aria-live="polite">
+              {err}
+            </div>
+          )}
+
+          <Separator className="my-4" />
+
+          <CommentThread comments={comments} onAdd={add} />
+        </CardContent>
+      </TooltipProvider>
+    </Card>
+  );
+}
+
+function PostText({ text, expanded, onToggle }) {
+  const MAX_CHARS = 220; const needsClamp = (text || '').length > MAX_CHARS;
+  return (
+    <div className="text-foreground/90">
+      {needsClamp ? (
+        <div>
+          <div className={clsx('whitespace-pre-wrap', !expanded && 'line-clamp-4')}>
+            <RichPostBody raw={text} />
+          </div>
+          <button type="button" onClick={onToggle} className="mt-1 text-sm font-medium text-primary hover:opacity-80">
+            {expanded ? 'See less' : 'See more'}
+          </button>
         </div>
-        <div className="mt-1 text-sm text-foreground/90 whitespace-pre-wrap">{c.text}</div>
-      </div>
+      ) : (
+        <div className="whitespace-pre-wrap"><RichPostBody raw={text} /></div>
+      )}
     </div>
   );
 }

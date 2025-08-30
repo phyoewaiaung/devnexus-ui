@@ -1,4 +1,4 @@
-// src/pages/ProfilePage.jsx — Polished shadcn UI/UX with cover upload
+// src/pages/ProfilePage.jsx — Polished shadcn UI/UX with cover upload (immediate toggle follow)
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -39,7 +39,7 @@ import {
   Trash2,
 } from 'lucide-react';
 
-// toast (use whatever you already use, e.g. sonner)
+// toast
 import { toast } from 'sonner';
 
 export default function ProfilePage() {
@@ -66,7 +66,22 @@ export default function ProfilePage() {
           getPostsByUser(username),
         ]);
         if (!alive) return;
-        setProfile(user || null);
+
+        // Normalize isFollowing so UI has a single source of truth
+        const normalized =
+          user
+            ? {
+              ...user,
+              isFollowing:
+                typeof user.isFollowing === 'boolean'
+                  ? user.isFollowing
+                  : Array.isArray(user.followers) && me?._id
+                    ? user.followers.includes(me._id)
+                    : false,
+            }
+            : null;
+
+        setProfile(normalized);
         const mapped = (postsResp.posts || []).map((p) => ({
           ...p,
           canDelete: me && p.author?._id === me._id,
@@ -90,10 +105,19 @@ export default function ProfilePage() {
     try {
       await followUser(username);
       setProfile((prev) =>
-        prev ? { ...prev, followersCount: (prev.followersCount || 0) + 1 } : prev
+        prev
+          ? {
+            ...prev,
+            followersCount: (prev.followersCount || 0) + 1,
+            isFollowing: true,
+            followers: Array.isArray(prev.followers) && me?._id
+              ? Array.from(new Set([...prev.followers, me._id]))
+              : prev.followers,
+          }
+          : prev
       );
     } catch (e) {
-      toast.error(e.message || 'Failed to follow');
+      throw e; // let caller handle revert+toast
     }
   };
 
@@ -105,11 +129,15 @@ export default function ProfilePage() {
           ? {
             ...prev,
             followersCount: Math.max((prev.followersCount || 1) - 1, 0),
+            isFollowing: false,
+            followers: Array.isArray(prev.followers) && me?._id
+              ? prev.followers.filter((id) => id !== me._id)
+              : prev.followers,
           }
           : prev
       );
     } catch (e) {
-      toast.error(e.message || 'Failed to unfollow');
+      throw e; // let caller handle revert+toast
     }
   };
 
@@ -181,7 +209,14 @@ export default function ProfilePage() {
 
 function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange }) {
   const [uploading, setUploading] = useState(false);
+  const [pending, setPending] = useState(false);     // prevent dup taps
+  const [following, setFollowing] = useState(!!profile.isFollowing); // local optimistic state
   const fileInputRef = useRef(null);
+
+  // keep local following in sync if parent updates (e.g., initial load)
+  useEffect(() => {
+    setFollowing(!!profile.isFollowing);
+  }, [profile.isFollowing]);
 
   const pickFile = () => fileInputRef.current?.click();
 
@@ -220,6 +255,30 @@ function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange }) {
       toast.error(err.message || 'Failed to remove cover');
     } finally {
       setUploading(false);
+    }
+  };
+
+  // 🚀 Immediate (optimistic) toggle like FB/Twitter:
+  // - Flip UI state instantly
+  // - Fire API in background
+  // - Revert + toast on failure
+  const toggleFollow = async () => {
+    if (pending) return;
+    const next = !following;
+    setFollowing(next);      // optimistic UI
+    setPending(true);
+
+    try {
+      if (next) {
+        await onFollow?.();
+      } else {
+        await onUnfollow?.();
+      }
+    } catch (e) {
+      setFollowing(!next);   // revert
+      toast.error(e.message || (next ? 'Failed to follow' : 'Failed to unfollow'));
+    } finally {
+      setPending(false);
     }
   };
 
@@ -303,12 +362,24 @@ function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange }) {
           {/* Actions */}
           {isMe ? (
             <Button asChild size="sm">
-              <Link to="/settings/profile"><PencilLine className="mr-2 h-4 w-4" /> Edit Profile</Link>
+              <Link to="/settings/profile">
+                <PencilLine className="mr-2 h-4 w-4" /> Edit Profile
+              </Link>
             </Button>
           ) : (
             <div className="flex items-center gap-2">
-              <Button size="sm" onClick={onFollow}>Follow</Button>
-              <Button size="sm" variant="outline" onClick={onUnfollow}>Unfollow</Button>
+              {/* Single immediate-toggle button */}
+              <Button
+                size="sm"
+                variant={following ? 'secondary' : 'default'}
+                onClick={toggleFollow}
+                disabled={pending}
+                aria-pressed={following}
+                aria-busy={pending}
+                className="min-w-[96px]"
+              >
+                {following ? 'Following' : 'Follow'}
+              </Button>
             </div>
           )}
         </div>
@@ -361,7 +432,7 @@ function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange }) {
           </div>
 
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <span>Posts: {profile.postsCount ?? '-'}</span>
+            {/* <span>Posts: {profile.postsCount ?? '-'}</span> */}
             <span>Followers: {profile.followersCount || 0}</span>
             <span>Following: {profile.followingCount || 0}</span>
           </div>
@@ -371,101 +442,114 @@ function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange }) {
   );
 }
 
+// --- replace AboutCard with this ---
+function InfoField({ label, children }) {
+  return (
+    <div>
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">{label}</div>
+      <div className="text-sm font-medium min-h-[1.25rem]">{children || '-'}</div>
+    </div>
+  );
+}
+
+function SocialLink({ href, children }) {
+  if (!href) return null;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+      className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm hover:bg-muted transition-colors"
+    >
+      {children}
+    </a>
+  );
+}
+
 function AboutCard({ profile }) {
+  const socials = profile.socialLinks || {};
+  const roles = Array.isArray(profile.roles) && profile.roles.length > 0 ? profile.roles.join(', ') : 'user';
+
   return (
     <Card className="p-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+      {/* Top: key facts */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="space-y-3">
-          <div>
-            <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Name</div>
-            <div className="text-sm font-medium">{profile.name || '-'}</div>
-          </div>
-          <div>
-            <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Username</div>
-            <div className="text-sm font-medium">@{profile.username}</div>
-          </div>
-          <div>
-            <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Roles</div>
-            <div className="text-sm font-medium">{(profile.roles || []).join(', ') || 'user'}</div>
-          </div>
+          <InfoField label="Name">{profile.name || '-'}</InfoField>
+          <InfoField label="Username">
+            {profile.username ? <span className="text-foreground/90">@{profile.username}</span> : '-'}
+          </InfoField>
+          <InfoField label="Roles">{roles}</InfoField>
         </div>
 
         <div className="space-y-3">
+          <InfoField label="Website">
+            {socials.website ? (
+              <a
+                href={socials.website}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="underline underline-offset-2 break-all"
+              >
+                {socials.website}
+              </a>
+            ) : (
+              '-'
+            )}
+          </InfoField>
+
           <div>
-            <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Website</div>
-            <div className="text-sm font-medium truncate">
-              {profile.socialLinks?.website ? (
-                <a className="underline underline-offset-2" href={profile.socialLinks.website} target="_blank" rel="noreferrer">
-                  {profile.socialLinks.website}
-                </a>
-              ) : (
-                '-')}
-            </div>
-          </div>
-          <div>
-            <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">GitHub</div>
-            <div className="text-sm font-medium truncate">
-              {profile.socialLinks?.github ? (
-                <a className="underline underline-offset-2" href={profile.socialLinks.github} target="_blank" rel="noreferrer">
-                  {profile.socialLinks.github}
-                </a>
-              ) : (
-                '-')}
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Twitter</div>
-              <div className="text-sm font-medium truncate">
-                {profile.socialLinks?.twitter ? (
-                  <a className="underline underline-offset-2" href={profile.socialLinks.twitter} target="_blank" rel="noreferrer">
-                    {profile.socialLinks.twitter}
-                  </a>
-                ) : (
-                  '-')}
+            <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">Socials</div>
+            {socials.github || socials.twitter || socials.linkedin ? (
+              <div className="flex flex-wrap gap-2">
+                <SocialLink href={socials.github}>
+                  <Github className="h-4 w-4" /> GitHub
+                </SocialLink>
+                <SocialLink href={socials.twitter}>
+                  <Twitter className="h-4 w-4" /> Twitter
+                </SocialLink>
+                <SocialLink href={socials.linkedin}>
+                  <Linkedin className="h-4 w-4" /> LinkedIn
+                </SocialLink>
               </div>
-            </div>
-            <div>
-              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">LinkedIn</div>
-              <div className="text-sm font-medium truncate">
-                {profile.socialLinks?.linkedin ? (
-                  <a className="underline underline-offset-2" href={profile.socialLinks.linkedin} target="_blank" rel="noreferrer">
-                    {profile.socialLinks.linkedin}
-                  </a>
-                ) : (
-                  '-')}
-              </div>
-            </div>
+            ) : (
+              <div className="text-sm font-medium text-muted-foreground">No social links</div>
+            )}
           </div>
         </div>
       </div>
 
-      {(Array.isArray(profile.skills) && profile.skills.length > 0) || profile.bio ? (
+      {/* Bottom: bio + skills */}
+      {(profile.bio || (Array.isArray(profile.skills) && profile.skills.length > 0)) && (
         <>
           <Separator className="my-6" />
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {profile.bio && (
-              <div className="md:col-span-2">
-                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Bio</div>
+              <div className="lg:col-span-2">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">Bio</div>
                 <p className="text-sm whitespace-pre-wrap leading-6">{profile.bio}</p>
               </div>
             )}
+
             {Array.isArray(profile.skills) && profile.skills.length > 0 && (
               <div>
-                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Skills</div>
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">Skills</div>
                 <div className="flex flex-wrap gap-1.5">
                   {profile.skills.map((s, i) => (
-                    <Badge key={`${s}-${i}`} variant="secondary" className="font-normal">{s}</Badge>
+                    <Badge key={`${s}-${i}`} variant="secondary" className="font-normal">
+                      {s}
+                    </Badge>
                   ))}
                 </div>
               </div>
             )}
           </div>
         </>
-      ) : null}
+      )}
     </Card>
   );
 }
+
 
 function HeaderSkeleton() {
   return (

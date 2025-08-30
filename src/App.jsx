@@ -1,4 +1,5 @@
-import { Routes, Route, Outlet, Link, Navigate, useLocation } from "react-router-dom";
+// src/App.jsx
+import { Routes, Route, Outlet, Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 
 // pages
@@ -7,6 +8,7 @@ import ProfilePage from "./pages/ProfilePage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import EditProfilePage from "./pages/EditProfilePage";
+import NotificationsPage from "./pages/NotificationsPage";
 
 // layout
 import NavBar from "./components/NavBar";
@@ -20,36 +22,48 @@ import { Button } from "@/components/ui/button";
 import { Home, TrendingUp, Plus, User as UserIcon, Bell } from "lucide-react";
 import { useNotifications } from "@/context/NotificationsContext";
 import { Toaster } from "sonner";
-import NotificationsPage from "./pages/NotificationsPage";
+import { useEffect } from "react";
+import { setupInterceptors } from "./api/client";
+import PostDetail from "./pages/PostDetail";
 
 export default function App() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    setupInterceptors(navigate);
+  }, [navigate]);
+
   return (
     <>
       <Routes>
-        <Route element={<MainAppShell />}>
-          {/* Feed */}
-          <Route element={<FeedShell />}>
-            <Route path="/" element={<FeedPage />} />
-          </Route>
+        {/* Public (auth) routes ONLY */}
+        <Route element={<AuthShell />}>
+          <Route path="/login" element={<RedirectIfAuthed><LoginPage /></RedirectIfAuthed>} />
+          <Route path="/register" element={<RedirectIfAuthed><RegisterPage /></RedirectIfAuthed>} />
+        </Route>
 
-          {/* Other pages */}
-          <Route element={<PageShell />}>
-            <Route path="/u/:username" element={<ProfilePage />} />
-            <Route path="/noti" element={<NotificationsPage />} />
-            <Route element={<PrivateRoute />}>
+        {/* Everything else requires auth */}
+        <Route element={<PrivateRoute />}>
+          <Route element={<MainAppShell />}>
+            {/* Feed */}
+            <Route element={<FeedShell />}>
+              <Route path="/" element={<FeedPage />} />
+            </Route>
+
+            {/* Other pages */}
+            <Route element={<PageShell />}>
+              <Route path="/u/:username" element={<ProfilePage />} />
+              <Route path="/noti" element={<NotificationsPage />} />
+              <Route path="/p/:id" element={<PostDetail />} />
               <Route path="/settings/profile" element={<EditProfilePage />} />
             </Route>
-          </Route>
 
-          {/* Auth */}
-          <Route element={<AuthShell />}>
-            <Route path="/login" element={<RedirectIfAuthed><LoginPage /></RedirectIfAuthed>} />
-            <Route path="/register" element={<RedirectIfAuthed><RegisterPage /></RedirectIfAuthed>} />
+            {/* 404 (protected by default; move it outside if you want public 404) */}
+            <Route path="*" element={<NotFound />} />
           </Route>
-
-          <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>
+
       <Toaster position="top-center" richColors closeButton />
     </>
   );
@@ -134,7 +148,7 @@ function MobileBottomNav() {
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-50 md:hidden">
-      <div className="mx-auto max-w-md px-3 pb-[calc(env(safe-area-inset-bottom)+8px)]">
+      <div className="mx-auto max-w-md px-3 pb=[calc(env(safe-area-inset-bottom)+8px)]">
         <div className="grid grid-cols-5 h-16 rounded-2xl border border-border/60 bg-background/70 backdrop-blur-xl shadow-[0_6px_20px_rgba(0,0,0,0.10)]">
           {navItems.map(({ to, icon: Icon, label }) => {
             const active =
@@ -142,7 +156,6 @@ function MobileBottomNav() {
               (label === "Profile" && location.pathname.startsWith("/u/")) ||
               (label === "Noti" && location.pathname.startsWith("/noti"));
 
-            // accessible label for Notifications item
             const ariaLabel =
               label === "Noti" && unread > 0
                 ? `Notifications, ${unread > 99 ? "99 plus" : unread} unread`
@@ -159,11 +172,8 @@ function MobileBottomNav() {
                 `}
               >
                 <Icon className={`h-5 w-5 ${active ? "scale-[1.06]" : ""}`} />
-
-                {/* label */}
                 <span className="leading-none">{label}</span>
 
-                {/* unread badge only for Noti */}
                 {label === "Noti" && unread > 0 && (
                   <span
                     className="absolute right-4 top-1 h-4 min-w-[1rem] rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-4 text-white"
