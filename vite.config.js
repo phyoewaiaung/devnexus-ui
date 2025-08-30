@@ -67,10 +67,10 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
-  server: {
-    proxy: {
-      // dev proxy: http://localhost:5173/api -> http://localhost:5000/api
-      '/api': { target: 'http://localhost:5000', changeOrigin: true }
-    }
-  }
+  // server: {
+  //   proxy: {
+  //     // dev proxy: http://localhost:5173/api -> http://localhost:5000/api
+  //     '/api': { target: 'http://localhost:5000', changeOrigin: true }
+  //   }
+  // }
 })
