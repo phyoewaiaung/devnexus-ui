@@ -2,14 +2,17 @@
 import axios from "axios";
 import { tokenStore } from "../lib/token";
 
+// Use environment variable with fallback
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 export const client = axios.create({
-  baseURL: "http://localhost:5000",
+  baseURL: API_URL,
   withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
 
 const refreshClient = axios.create({
-  baseURL: "http://localhost:5000",
+  baseURL: API_URL,
   withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
@@ -47,7 +50,7 @@ export function setupInterceptors(navigate) {
           console.error("Refresh failed:", e);
         }
         tokenStore.set(null);
-        navigate("/login", { replace: true }); // 🔑 redirect to login
+        navigate("/login", { replace: true });
       }
 
       return Promise.reject(error);
