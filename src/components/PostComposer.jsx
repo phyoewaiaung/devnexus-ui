@@ -2,20 +2,20 @@ import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 
 import {
-  ImageIcon,
+  Image,
   Loader2,
   SmilePlus,
   X,
   Code2,
   Bold,
   Italic,
-  Link as LinkIcon,
+  Link,
   List,
   ListOrdered,
   Quote,
@@ -24,13 +24,22 @@ import {
   Eye,
   Edit3,
 } from 'lucide-react';
+import RichPostBody from './RichPostBody';
 import { createPost } from '@/api/posts';
-import { toast } from 'sonner';
-import { useAuth } from '@/context/AuthContext';
+
+const toast = {
+  success: (msg) => console.log('Success:', msg),
+  error: (msg) => console.error('Error:', msg)
+};
+
+const useAuth = () => ({
+  user: {
+    avatarUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face'
+  }
+});
 
 // ===== Config =====
 const MAX_LEN = 5000;
-
 
 const languages = [
   'javascript',
@@ -66,111 +75,6 @@ const languages = [
   'haskell',
   'elixir',
 ];
-
-// ===== Utilities =====
-// Escape HTML to avoid XSS through markdown-like input before we do our simple replacements
-const escapeHtml = (str) =>
-  str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-
-// Lightweight highlighter that uses Tailwind-friendly classes (dark-mode aware)
-const highlightCode = (code, lang) => {
-  const keywords = {
-    javascript: [
-      'function',
-      'const',
-      'let',
-      'var',
-      'if',
-      'else',
-      'for',
-      'while',
-      'return',
-      'class',
-      'import',
-      'export',
-    ],
-    python: [
-      'def',
-      'class',
-      'if',
-      'elif',
-      'else',
-      'for',
-      'while',
-      'return',
-      'import',
-      'from',
-      'try',
-      'except',
-    ],
-    java: [
-      'public',
-      'private',
-      'class',
-      'interface',
-      'if',
-      'else',
-      'for',
-      'while',
-      'return',
-      'import',
-      'package',
-    ],
-    kotlin: [
-      'fun',
-      'class',
-      'interface',
-      'if',
-      'else',
-      'for',
-      'while',
-      'return',
-      'import',
-      'package',
-      'val',
-      'var',
-    ],
-  };
-
-  let highlighted = escapeHtml(code);
-  const langKeywords = keywords[lang] || [];
-
-  langKeywords.forEach((keyword) => {
-    const regex = new RegExp(`\\b${keyword}\\b`, 'g');
-    highlighted = highlighted.replace(
-      regex,
-      `<span class="text-blue-600 dark:text-blue-400 font-semibold">${keyword}</span>`
-    );
-  });
-
-  // strings
-  highlighted = highlighted
-    .replace(/&quot;([^&]*)&quot;/g, '<span class="text-green-600 dark:text-green-400">"$1"</span>')
-    .replace(/&#039;([^&]*)&#039;/g, "<span class=\"text-green-600 dark:text-green-400\'>&#039;$1&#039;</span>");
-
-  // comments
-  highlighted = highlighted
-    .replace(/(^|\n)\s*\/\/.*(?=\n|$)/g, (m) => `<span class="text-muted-foreground italic">${m}</span>`)
-    .replace(/(^|\n)\s*#.*(?=\n|$)/g, (m) => `<span class="text-muted-foreground italic">${m}</span>`);
-
-  return highlighted;
-};
-
-// ===== API shim (kept from original) =====
-async function createPostApi({ text, image, tags }) {
-  try {
-    const res = await createPost({ text, image, tags });
-    toast.success('post created successfully');
-    return res;
-  } catch (e) {
-    console.log(e);
-  }
-}
 
 // ===== Component =====
 export default function PostComposer({ onCreated }) {
@@ -234,7 +138,6 @@ export default function PostComposer({ onCreated }) {
     const newText =
       text.substring(0, start) + before + replacement + after + text.substring(end);
     setText(newText.slice(0, MAX_LEN));
-    // put cursor back smartly (mobile-friendly)
     requestAnimationFrame(() => {
       const newCursorPos = start + before.length + replacement.length;
       textarea.setSelectionRange(newCursorPos, newCursorPos);
@@ -259,41 +162,6 @@ export default function PostComposer({ onCreated }) {
     setCodeOpen(false);
   };
 
-  const renderPreview = () => {
-    // We escape first, then do *simple* markdown-ish replacements
-    let html = escapeHtml(text);
-
-    html = html.replace(/^### (.*$)/gm, '<h3 class="text-lg font-semibold mt-4 mb-2">$1<\/h3>');
-    html = html.replace(/^## (.*$)/gm, '<h2 class="text-xl font-bold mt-4 mb-2">$1<\/h2>');
-    html = html.replace(/^# (.*$)/gm, '<h1 class="text-2xl font-bold mt-4 mb-2">$1<\/h1>');
-
-    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1<\/strong>');
-    html = html.replace(/\*([^*]+)\*/g, '<em>$1<\/em>');
-    html = html.replace(/`([^`]+)`/g, '<code class="bg-muted px-1 py-0.5 rounded text-sm font-mono">$1<\/code>');
-    html = html.replace(
-      /\[([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2" class="text-blue-600 dark:text-blue-400 underline-offset-2 hover:underline" target="_blank" rel="noopener noreferrer">$1<\/a>'
-    );
-    html = html.replace(
-      /^> (.*$)/gm,
-      '<blockquote class="border-l-4 border-muted-foreground/30 pl-4 py-2 bg-muted/40 italic rounded">$1<\/blockquote>'
-    );
-    html = html.replace(/^- (.*$)/gm, '<li class="ml-4">• $1<\/li>');
-    html = html.replace(/^[0-9]+\. (.*$)/gm, '<li class="ml-4 list-decimal">$1<\/li>');
-
-    html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, function (_match, lang, code) {
-      const highlighted = lang ? highlightCode(code, lang) : escapeHtml(code);
-      return (
-        '<pre class="bg-neutral-900 text-neutral-100 p-4 rounded-lg overflow-x-auto"><code class="font-mono text-sm">' +
-        highlighted +
-        '</code></pre>'
-      );
-    });
-
-    html = html.replace(/\n/g, '<br>');
-    return html;
-  };
-
   async function submit(e) {
     if (e) e.preventDefault();
     if (!text.trim() && !file) return;
@@ -301,7 +169,7 @@ export default function PostComposer({ onCreated }) {
     setBusy(true);
 
     try {
-      const { post } = await createPost({ text: text.trim(), image: file });
+      const { post } = await createPost({ text: text.trim(), image: file || undefined });
       toast.success('Post created successfully');
 
       setText('');
@@ -329,9 +197,6 @@ export default function PostComposer({ onCreated }) {
         <div className="flex items-start gap-3">
           <Avatar className="h-10 w-10 ring-1 ring-neutral-200 dark:ring-neutral-800 flex-shrink-0">
             <AvatarImage src={user.avatarUrl} />
-            {/* <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 font-semibold">
-              {(mockUser.name && mockUser.name[0] && mockUser.name[0].toUpperCase()) || 'U'}
-            </AvatarFallback> */}
           </Avatar>
 
           <div className="flex-1 min-w-0 space-y-3">
@@ -345,7 +210,7 @@ export default function PostComposer({ onCreated }) {
                 <Button type="button" variant="ghost" size="sm" onClick={formatQuote} className="h-8 w-8 p-0" title="Quote"><Quote className="h-4 w-4" /></Button>
                 <Button type="button" variant="ghost" size="sm" onClick={formatList} className="h-8 w-8 p-0" title="Bullet List"><List className="h-4 w-4" /></Button>
                 <Button type="button" variant="ghost" size="sm" onClick={formatOrderedList} className="h-8 w-8 p-0" title="Numbered List"><ListOrdered className="h-4 w-4" /></Button>
-                <Button type="button" variant="ghost" size="sm" onClick={formatLink} className="h-8 w-8 p-0" title="Link"><LinkIcon className="h-4 w-4" /></Button>
+                <Button type="button" variant="ghost" size="sm" onClick={formatLink} className="h-8 w-8 p-0" title="Link"><Link className="h-4 w-4" /></Button>
               </div>
 
               <div className="w-px h-6 bg-neutral-300 dark:bg-neutral-700 mx-1" />
@@ -365,10 +230,7 @@ export default function PostComposer({ onCreated }) {
 
             {/* Editor / Preview */}
             {isPreviewMode ? (
-              <div
-                className="min-h-[80px] p-3 border border-neutral-200 dark:border-neutral-800 rounded-lg bg-white dark:bg-neutral-900 prose prose-sm max-w-none dark:prose-invert"
-                dangerouslySetInnerHTML={{ __html: renderPreview() }}
-              />
+              <div className="whitespace-pre-wrap"><RichPostBody raw={text} /></div>
             ) : (
               <Textarea
                 ref={textareaRef}
@@ -377,6 +239,7 @@ export default function PostComposer({ onCreated }) {
                 placeholder="Share something with DevNexus… Use markdown for rich formatting!"
                 className="min-h-[80px] resize-y border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent"
                 aria-label="Post text"
+                wrap="soft"
                 onKeyDown={(e) => {
                   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') submit(e);
                 }}
@@ -427,7 +290,7 @@ export default function PostComposer({ onCreated }) {
                   onClick={pick}
                   className="gap-1.5 text-xs sm:text-sm"
                 >
-                  <ImageIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                  <Image className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                   <span>Photo</span>
                 </Button>
 
@@ -438,11 +301,11 @@ export default function PostComposer({ onCreated }) {
                       <span>Code</span>
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="sm:max-w-[500px] w-[95vw]">
-                    <DialogHeader>
+                  <DialogContent className="sm:max-w-[800px] w-[95vw] h-[90vh] flex flex-col">
+                    <DialogHeader className="flex-shrink-0">
                       <DialogTitle>Insert Code Block</DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-3">
+                    <div className="flex-1 overflow-y-auto space-y-4 px-1">
                       <div>
                         <label className="text-sm font-medium mb-2 block">Language</label>
                         <select
@@ -458,30 +321,27 @@ export default function PostComposer({ onCreated }) {
                         </select>
                       </div>
 
-                      <div>
+                      <div className="flex-1">
                         <label className="text-sm font-medium mb-2 block">Code</label>
                         <Textarea
                           value={codeText}
                           onChange={(e) => setCodeText(e.target.value)}
                           placeholder="Paste or type your code…"
-                          className="min-h-[150px] font-mono text-sm"
+                          className="h-[300px] font-mono text-sm whitespace-pre-wrap break-all resize-none overflow-y-auto"
+                          wrap="soft"
                         />
                       </div>
 
                       {codeText.trim() && (
                         <div>
                           <label className="text-sm font-medium mb-2 block">Preview</label>
-                          <pre className="bg-neutral-900 text-neutral-100 p-3 rounded-lg overflow-x-auto max-h-40">
-                            <code
-                              className="font-mono text-xs"
-                              // Tailwind-aware highlight
-                              dangerouslySetInnerHTML={{ __html: highlightCode(codeText, codeLang) }}
-                            />
-                          </pre>
+                          <div className="h-[200px] overflow-y-auto border border-neutral-200 dark:border-neutral-700 rounded-md p-3 bg-neutral-50 dark:bg-neutral-800/50">
+                            <RichPostBody raw={`\`\`\`${codeLang}\n${codeText}\n\`\`\``} />
+                          </div>
                         </div>
                       )}
                     </div>
-                    <DialogFooter>
+                    <DialogFooter className="flex-shrink-0 border-t border-neutral-200 dark:border-neutral-700 pt-4">
                       <Button type="button" variant="outline" onClick={() => setCodeOpen(false)}>
                         Cancel
                       </Button>

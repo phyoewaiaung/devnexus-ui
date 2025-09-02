@@ -22,136 +22,21 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
-import copy from 'copy-to-clipboard';
-import { Highlight, themes } from 'prism-react-renderer';
 import {
   Heart, MessageSquare, Trash2, MoreHorizontal, Loader2, User as UserIcon,
-  Share2, Bookmark, Link as LinkIcon, ClipboardCopy, CheckCheck, Code2, ChevronDown, ChevronUp
+  Share2, Link as LinkIcon
 } from 'lucide-react';
 import clsx from 'clsx';
 import { toast } from 'sonner';
+import copy from 'copy-to-clipboard';
+
+// ✅ new reusable renderer
+import RichPostBody from '@/components/RichPostBody';
 
 /* ---------------------- utils ---------------------- */
 const k = (n) => { if (n == null) return 0; if (n < 1000) return n; if (n < 10000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k'; if (n < 1_000_000) return Math.round(n / 1000) + 'k'; return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'; };
 const relativeTime = (ts) => { if (!ts) return ''; const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' }); const d = new Date(ts).getTime(); const now = Date.now(); const diff = Math.floor((d - now) / 1000); const units = [['year', 31536000], ['month', 2592000], ['week', 604800], ['day', 86400], ['hour', 3600], ['minute', 60], ['second', 1]]; for (const [u, s] of units) { const v = Math.round(diff / s); if (Math.abs(v) >= 1) return rtf.format(v, u); } return 'just now'; };
 const fullDateTitle = (ts) => { try { return new Date(ts || 0).toLocaleString(); } catch { return ''; } };
-
-/* ---------------------- Code block (highlight + copy + collapse) ---------------------- */
-function CodeBlock({ code, lang = 'text' }) {
-  const [copied, setCopied] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  useEffect(() => { if (!copied) return; const id = setTimeout(() => setCopied(false), 1400); return () => clearTimeout(id); }, [copied]);
-  const lineCount = useMemo(() => (code || '').split('\n').length, [code]);
-  const clamp = !expanded && lineCount > 18;
-  // map a few aliases Prism expects
-  const normalizedLang = useMemo(() => {
-    const map = { js: 'javascript', ts: 'typescript', shell: 'bash', sh: 'bash', cplusplus: 'cpp' };
-    const l = (lang || 'text').toLowerCase();
-    return map[l] || l;
-  }, [lang]);
-
-
-  return (
-    <div className="group relative rounded-xl border border-border bg-muted/60">
-      <div className="flex items-center justify-between px-3 py-2 text-xs text-muted-foreground border-b border-border">
-        <div className="flex items-center gap-2"><Code2 className="h-3.5 w-3.5" /> {normalizedLang}</div>
-        <div className="flex items-center gap-1">
-          {lineCount > 18 && (
-            <Button variant="ghost" size="xs" className="h-7 px-2 text-xs" onClick={() => setExpanded(v => !v)}>
-              {expanded ? <ChevronUp className="h-3.5 w-3.5 mr-1" /> : <ChevronDown className="h-3.5 w-3.5 mr-1" />}
-              {expanded ? 'Collapse' : 'Expand'}
-            </Button>
-          )}
-          <Button onClick={() => { copy(code || ''); setCopied(true); toast.success('Code copied'); }} variant="ghost" size="xs" className="h-7 px-2 text-xs" aria-label="Copy code">
-            {copied ? <CheckCheck className="h-3.5 w-3.5" /> : <ClipboardCopy className="h-3.5 w-3.5" />}
-          </Button>
-        </div>
-      </div>
-      <div className={clsx('overflow-auto', clamp && 'max-h-[360px]')}>
-        <Highlight theme={themes.nightOwl} code={code || ''} language={normalizedLang}>
-          {({ className, style, tokens, getLineProps, getTokenProps }) => (
-            <pre className={clsx(className, 'm-0 p-3 text-sm leading-[1.45]')} style={style}>
-              {tokens.map((line, i) => (
-                <div key={i} {...getLineProps({ line })} className="table w-full">
-                  <span className="table-cell select-none pr-4 text-muted-foreground/70 text-right w-8">{i + 1}</span>
-                  <span className="table-cell">{line.map((token, key) => (<span key={key} {...getTokenProps({ token })} />))}</span>
-                </div>
-              ))}
-            </pre>
-          )}
-        </Highlight>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------------- Rich text body (CRLF safe) ---------------------- */
-function linkifyAndInlineCode(text) {
-  const inlineCodeRe = /`([^`]+)`/g;
-  const urlRe = /(https?:\/\/[^\s]+)|(www\.[^\s]+\.[^\s]+)/gi;
-  const mentionRe = /(^|\s)@([a-zA-Z0-9_]{2,})/g;
-  const tagRe = /(^|\s)#([\p{L}0-9_]{2,})/gu;
-
-  const nodes = []; let idx = 0; let last = 0, m;
-  while ((m = inlineCodeRe.exec(text))) {
-    const [full, code] = m;
-    if (m.index > last) nodes.push(text.slice(last, m.index));
-    nodes.push(<code key={`ic-${idx++}`} className="rounded bg-muted px-1 py-0.5 text-[0.9em] font-mono">{code}</code>);
-    last = m.index + full.length;
-  }
-  if (last < text.length) nodes.push(text.slice(last));
-
-  const linkified = nodes.flatMap(n => {
-    if (typeof n !== 'string') return [n];
-    const s = n; const out = []; let i = 0;
-    const re = new RegExp(`${urlRe.source}|${mentionRe.source}|${tagRe.source}`, 'giu'); let r;
-    while ((r = re.exec(s))) {
-      if (r.index > i) out.push(s.slice(i, r.index));
-      const match = r[0];
-      if (r[1] || r[2]) {
-        const url = match.startsWith('http') ? match : `https://${match}`;
-        out.push(<a key={`u-${idx++}`} href={url} target="_blank" rel="noreferrer" className="text-primary hover:underline break-words">{match}</a>);
-      } else if (r[3] || r[4]) {
-        const handle = r[4];
-        out.push(<Link key={`m-${idx++}`} to={`/u/${handle}`} className="text-primary hover:underline">@{handle}</Link>);
-      } else if (r[5] || r[6]) {
-        const tag = r[6];
-        out.push(<Link key={`t-${idx++}`} to={`/?tag=${encodeURIComponent(tag)}`} className="text-primary hover:underline">#{tag}</Link>);
-      }
-      i = re.lastIndex;
-    }
-    if (i < s.length) out.push(s.slice(i));
-    return out;
-  });
-
-  return <p className="leading-relaxed text-foreground/90">{linkified}</p>;
-}
-
-function RichPostBody({ raw }) {
-  if (!raw) return null;
-  raw = raw.replace(/\r\n/g, '\n'); // normalize CRLF
-  const fenceRe = /```([a-zA-Z0-9_+-]+)?\r?\n([\s\S]*?)```/g;
-
-  const parts = []; let last = 0, m;
-  while ((m = fenceRe.exec(raw))) {
-    const [full, lang, code] = m;
-    if (m.index > last) parts.push({ type: 'text', value: raw.slice(last, m.index) });
-    parts.push({ type: 'code', value: code, lang: (lang || 'text').toLowerCase() });
-    last = m.index + full.length;
-  }
-  if (last < raw.length) parts.push({ type: 'text', value: raw.slice(last) });
-
-  return (
-    <div className="space-y-3">
-      {parts.map((p, i) =>
-        p.type === 'code'
-          ? (<CodeBlock key={i} code={p.value} lang={p.lang} />)
-          : (<div key={i} className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap break-words">{linkifyAndInlineCode(p.value)}</div>)
-      )}
-    </div>
-  );
-}
-
 
 /* ---------------------- Comments ---------------------- */
 function CommentThread({ comments, onAdd }) {
@@ -422,7 +307,7 @@ export default function PostCard({ post, onDeleted, postDetailStatus = false }) 
 }
 
 function PostText({ text, expanded, onToggle }) {
-  const MAX_CHARS = 220; const needsClamp = (text || '').length > MAX_CHARS;
+  const MAX_CHARS = 1500; const needsClamp = (text || '').length > MAX_CHARS;
   return (
     <div className="text-foreground/90">
       {needsClamp ? (
