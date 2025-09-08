@@ -6,6 +6,8 @@ import { Avatar, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 import {
   Image,
@@ -15,7 +17,7 @@ import {
   Code2,
   Bold,
   Italic,
-  Link,
+  Link as LinkIcon,
   List,
   ListOrdered,
   Quote,
@@ -26,17 +28,12 @@ import {
 } from 'lucide-react';
 import RichPostBody from './RichPostBody';
 import { createPost } from '@/api/posts';
+import { useAuth } from '@/context/AuthContext';
 
 const toast = {
   success: (msg) => console.log('Success:', msg),
   error: (msg) => console.error('Error:', msg)
 };
-
-const useAuth = () => ({
-  user: {
-    avatarUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face'
-  }
-});
 
 // ===== Config =====
 const MAX_LEN = 5000;
@@ -86,6 +83,7 @@ export default function PostComposer({ onCreated }) {
   const [codeLang, setCodeLang] = useState('javascript');
   const [codeText, setCodeText] = useState('');
   const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [showCodePreview, setShowCodePreview] = useState(false);
 
   const fileRef = useRef(null);
   const textareaRef = useRef(null);
@@ -160,6 +158,7 @@ export default function PostComposer({ onCreated }) {
     setText((t) => (t || '').concat(block).slice(0, MAX_LEN));
     setCodeText('');
     setCodeOpen(false);
+    setShowCodePreview(false);
   };
 
   async function submit(e) {
@@ -210,7 +209,7 @@ export default function PostComposer({ onCreated }) {
                 <Button type="button" variant="ghost" size="sm" onClick={formatQuote} className="h-8 w-8 p-0" title="Quote"><Quote className="h-4 w-4" /></Button>
                 <Button type="button" variant="ghost" size="sm" onClick={formatList} className="h-8 w-8 p-0" title="Bullet List"><List className="h-4 w-4" /></Button>
                 <Button type="button" variant="ghost" size="sm" onClick={formatOrderedList} className="h-8 w-8 p-0" title="Numbered List"><ListOrdered className="h-4 w-4" /></Button>
-                <Button type="button" variant="ghost" size="sm" onClick={formatLink} className="h-8 w-8 p-0" title="Link"><Link className="h-4 w-4" /></Button>
+                <Button type="button" variant="ghost" size="sm" onClick={formatLink} className="h-8 w-8 p-0" title="Link"><LinkIcon className="h-4 w-4" /></Button>
               </div>
 
               <div className="w-px h-6 bg-neutral-300 dark:bg-neutral-700 mx-1" />
@@ -301,10 +300,14 @@ export default function PostComposer({ onCreated }) {
                       <span>Code</span>
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="sm:max-w-[800px] w-[95vw] h-[90vh] flex flex-col">
-                    <DialogHeader className="flex-shrink-0">
+                  <DialogContent className="sm:max-w-[800px] w-[95vw] h-[77vh] flex flex-col">
+                    <DialogHeader className="flex-shrink-0 flex items-center justify-between">
                       <DialogTitle>Insert Code Block</DialogTitle>
+
+                      {/* Compact preview toggle */}
+
                     </DialogHeader>
+
                     <div className="flex-1 overflow-y-auto space-y-4 px-1">
                       <div>
                         <label className="text-sm font-medium mb-2 block">Language</label>
@@ -322,25 +325,36 @@ export default function PostComposer({ onCreated }) {
                       </div>
 
                       <div className="flex-1">
-                        <label className="text-sm font-medium mb-2 block">Code</label>
-                        <Textarea
-                          value={codeText}
-                          onChange={(e) => setCodeText(e.target.value)}
-                          placeholder="Paste or type your code…"
-                          className="h-[300px] font-mono text-sm whitespace-pre-wrap break-all resize-none overflow-y-auto"
-                          wrap="soft"
-                        />
-                      </div>
-
-                      {codeText.trim() && (
-                        <div>
-                          <label className="text-sm font-medium mb-2 block">Preview</label>
-                          <div className="h-[200px] overflow-y-auto border border-neutral-200 dark:border-neutral-700 rounded-md p-3 bg-neutral-50 dark:bg-neutral-800/50">
-                            <RichPostBody raw={`\`\`\`${codeLang}\n${codeText}\n\`\`\``} />
+                        <div className='flex items-center justify-between mb-2'>
+                          <label className="text-sm font-medium mb-2 block">
+                            Code
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <Switch id="preview-toggle" checked={showCodePreview} onCheckedChange={setShowCodePreview} />
+                            <Label htmlFor="preview-toggle" className="text-sm">Preview</Label>
                           </div>
                         </div>
-                      )}
+
+                        {showCodePreview ? (
+                          <div className="h-[30vh] max-h-[30vh] overflow-y-auto bg-neutral-50 dark:bg-neutral-800/50">
+                            {codeText.trim() ? (
+                              <RichPostBody raw={`\`\`\`${codeLang}\n${codeText}\n\`\`\``} />
+                            ) : (
+                              <p className="text-sm text-neutral-500">Nothing to preview yet.</p>
+                            )}
+                          </div>
+                        ) : (
+                          <Textarea
+                            value={codeText}
+                            onChange={(e) => setCodeText(e.target.value)}
+                            placeholder="Paste or type your code…"
+                            className="h-[30vh] max-h-[30vh] font-mono text-sm whitespace-pre resize-none overflow-y-auto"
+                            wrap="off"
+                          />
+                        )}
+                      </div>
                     </div>
+
                     <DialogFooter className="flex-shrink-0 border-t border-neutral-200 dark:border-neutral-700 pt-4">
                       <Button type="button" variant="outline" onClick={() => setCodeOpen(false)}>
                         Cancel
