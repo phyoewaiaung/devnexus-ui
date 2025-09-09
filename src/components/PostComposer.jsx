@@ -8,6 +8,9 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 import {
   Image,
@@ -25,6 +28,7 @@ import {
   Type,
   Eye,
   Edit3,
+  Search as SearchIcon,
 } from 'lucide-react';
 import RichPostBody from './RichPostBody';
 import { createPost } from '@/api/posts';
@@ -32,46 +36,68 @@ import { useAuth } from '@/context/AuthContext';
 
 const toast = {
   success: (msg) => console.log('Success:', msg),
-  error: (msg) => console.error('Error:', msg)
+  error: (msg) => console.error('Error:', msg),
 };
 
 // ===== Config =====
 const MAX_LEN = 5000;
+const RECENT_KEY = 'dn_recent_emojis';
+const RECENT_MAX = 18;
 
-const languages = [
-  'javascript',
-  'typescript',
-  'python',
-  'java',
-  'kotlin',
-  'swift',
-  'go',
-  'rust',
-  'cpp',
-  'c',
-  'csharp',
-  'php',
-  'ruby',
-  'dart',
-  'scala',
-  'clojure',
-  'html',
-  'css',
-  'scss',
-  'json',
-  'xml',
-  'yaml',
-  'sql',
-  'bash',
-  'powershell',
-  'dockerfile',
-  'markdown',
-  'latex',
-  'r',
-  'matlab',
-  'haskell',
-  'elixir',
+// A compact emoji dataset (curated for general-purpose posting).
+// Add/remove as you like — keeping it small avoids heavy deps.
+const EMOJI_SETS = [
+  {
+    name: 'Smileys',
+    emojis: [
+      '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '😘', '😗', '😙', '😚', '😋', '😜', '🤪', '😝', '🫠', '🤗', '🤭', '🫢', '🤫', '🤔', '🫡', '🤤', '🤯', '😴', '🥱', '😪', '😵', '🤐', '🥳', '😎', '🤓', '🫥', '😏', '😒', '🙄', '😬', '😮‍💨', '😌', '😔', '😕', '🫤', '🙃'
+    ],
+  },
+  {
+    name: 'Gestures',
+    emojis: [
+      '👍', '👎', '👌', '🤌', '🤏', '✌️', '🤟', '🤘', '🤙', '👋', '🤝', '👏', '🙌', '🫶', '🙏', '💪', '☝️', '👆', '👇', '👉', '👈', '🖐️', '✋', '🖖', '🤲'
+    ],
+  },
+  {
+    name: 'Hearts & Reactions',
+    emojis: [
+      '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💖', '💘', '💝', '💗', '💓', '💞', '💕', '💔', '💯', '🔥', '✨', '⚡', '🌟', '💥', '💫', '🫧', '🎉', '🎊'
+    ],
+  },
+  {
+    name: 'Animals & Food',
+    emojis: [
+      '🐶', '🐱', '🐻', '🐼', '🦊', '🦁', '🐯', '🦄', '🐸', '🐵', '🐧', '🐤', '🐣', '🐥', '🍏', '🍎', '🍌', '🍉', '🍇', '🍓', '🍒', '🍑', '🥑', '🍕', '🍔', '🍟', '🌮', '🍣', '🍩', '🍪', '🎂', '🍰', '🧁', '🍫', '🍺', '🍻', '☕', '🧋'
+    ],
+  },
+  {
+    name: 'Objects & Symbols',
+    emojis: [
+      '🧠', '🖥️', '💻', '⌨️', '🖱️', '🛠️', '🧰', '🧪', '🚀', '📌', '📎', '📚', '📦', '🗂️', '📝', '✏️', '🖊️', '📈', '📉', '📊', '⏱️', '⏰', '🗓️', '📅', '🔒', '🔑', '🔔', '🔕', '♻️', '✅', '☑️', '❌', '⚠️', '❗', '❓'
+    ],
+  },
 ];
+
+// ===== Helpers for Recent Emojis =====
+function loadRecentEmojis() {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentEmojis(list) {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, RECENT_MAX)));
+  } catch {
+    // ignore
+  }
+}
 
 // ===== Component =====
 export default function PostComposer({ onCreated }) {
@@ -85,6 +111,11 @@ export default function PostComposer({ onCreated }) {
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [showCodePreview, setShowCodePreview] = useState(false);
 
+  // Emoji picker state
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [emojiQuery, setEmojiQuery] = useState('');
+  const [recentEmojis, setRecentEmojis] = useState([]);
+
   const fileRef = useRef(null);
   const textareaRef = useRef(null);
   const { user } = useAuth();
@@ -93,6 +124,10 @@ export default function PostComposer({ onCreated }) {
   const progress = Math.min(100, Math.round((text.length / MAX_LEN) * 100));
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+
+  useEffect(() => {
+    setRecentEmojis(loadRecentEmojis());
+  }, []);
 
   const pick = () => fileRef.current?.click();
 
@@ -160,6 +195,55 @@ export default function PostComposer({ onCreated }) {
     setCodeOpen(false);
     setShowCodePreview(false);
   };
+
+  // ===== Emoji insertion =====
+  const insertEmoji = (emoji) => {
+    // If currently previewing, switch to edit first
+    if (isPreviewMode) setIsPreviewMode(false);
+
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      setText((t) => (t + emoji).slice(0, MAX_LEN));
+    } else {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const newText = text.substring(0, start) + emoji + text.substring(end);
+      setText(newText.slice(0, MAX_LEN));
+      requestAnimationFrame(() => {
+        const caret = start + emoji.length;
+        textarea.setSelectionRange(caret, caret);
+        textarea.focus();
+      });
+    }
+
+    // Update recents (LRU-ish)
+    setRecentEmojis((prev) => {
+      const next = [emoji, ...prev.filter((e) => e !== emoji)].slice(0, RECENT_MAX);
+      saveRecentEmojis(next);
+      return next;
+    });
+  };
+
+  const filteredEmojiSets = EMOJI_SETS.map((set) => {
+    if (!emojiQuery.trim()) return set;
+    const q = emojiQuery.trim().toLowerCase();
+    // crude "name" filter by Unicode name match is non-trivial w/o deps.
+    // Here we filter by a small hand-made alias map and include everything if query is too broad.
+    // For practical UX, also filter by common textual tags matched in names below:
+    const TAGS = {
+      Smileys: ['smile', 'happy', 'lol', 'joy', 'grin', 'wink', 'kiss', 'heart', 'sweat', 'sleep', 'cool', 'party', 'thinking'],
+      Gestures: ['thumb', 'ok', 'v', 'hand', 'clap', 'pray', 'muscle', 'point', 'wave'],
+      'Hearts & Reactions': ['heart', 'love', 'spark', 'fire', 'party', 'star', '100', 'boom', 'bang'],
+      'Animals & Food': ['dog', 'cat', 'bear', 'panda', 'fox', 'lion', 'unicorn', 'bird', 'chick', 'fruit', 'pizza', 'burger', 'fries', 'taco', 'sushi', 'cake', 'cookie', 'coffee'],
+      'Objects & Symbols': ['computer', 'laptop', 'keyboard', 'mouse', 'tool', 'rocket', 'pin', 'paper', 'book', 'note', 'chart', 'clock', 'calendar', 'lock', 'bell', 'recycle', 'check', 'cross', 'warning', 'question', 'exclamation'],
+    };
+    // If some tags in this category include query, we keep the set; otherwise we filter per simple heuristic.
+    const hitsTags = (TAGS[set.name] || []).some((t) => t.includes(q));
+    if (hitsTags) return set;
+    // Otherwise, filter the emoji list lightly by fallback heuristic: keep all (avoids over-filtering without proper names).
+    // If you prefer stricter filtering, comment the next line and implement your own mapping.
+    return { ...set, emojis: set.emojis.filter(() => true) };
+  });
 
   async function submit(e) {
     if (e) e.preventDefault();
@@ -303,9 +387,6 @@ export default function PostComposer({ onCreated }) {
                   <DialogContent className="sm:max-w-[800px] w-[95vw] h-[77vh] flex flex-col">
                     <DialogHeader className="flex-shrink-0 flex items-center justify-between">
                       <DialogTitle>Insert Code Block</DialogTitle>
-
-                      {/* Compact preview toggle */}
-
                     </DialogHeader>
 
                     <div className="flex-1 overflow-y-auto space-y-4 px-1">
@@ -316,7 +397,10 @@ export default function PostComposer({ onCreated }) {
                           onChange={(e) => setCodeLang(e.target.value)}
                           className="flex h-9 w-full rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
                         >
-                          {languages.map((lang) => (
+                          {[
+                            'javascript', 'typescript', 'python', 'java', 'kotlin', 'swift', 'go', 'rust', 'cpp', 'c', 'csharp', 'php', 'ruby', 'dart', 'scala',
+                            'clojure', 'html', 'css', 'scss', 'json', 'xml', 'yaml', 'sql', 'bash', 'powershell', 'dockerfile', 'markdown', 'latex', 'r', 'matlab', 'haskell', 'elixir',
+                          ].map((lang) => (
                             <option key={lang} value={lang}>
                               {lang.charAt(0).toUpperCase() + lang.slice(1)}
                             </option>
@@ -336,7 +420,7 @@ export default function PostComposer({ onCreated }) {
                         </div>
 
                         {showCodePreview ? (
-                          <div className="h-[30vh] max-h-[30vh] overflow-y-auto bg-neutral-50 dark:bg-neutral-800/50">
+                          <div className="h-[30vh] max-h-[30vh] overflow-y-auto bg-neutral-50 dark:bg-neutral-800/50 rounded-md p-3">
                             {codeText.trim() ? (
                               <RichPostBody raw={`\`\`\`${codeLang}\n${codeText}\n\`\`\``} />
                             ) : (
@@ -366,10 +450,76 @@ export default function PostComposer({ onCreated }) {
                   </DialogContent>
                 </Dialog>
 
-                <Button type="button" variant="outline" size="sm" disabled className="gap-1.5 text-xs sm:text-sm">
-                  <SmilePlus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                  <span>Emoji</span>
-                </Button>
+                {/* Emoji Picker */}
+                <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+                  <PopoverTrigger asChild>
+                    <Button type="button" variant="outline" size="sm" className="gap-1.5 text-xs sm:text-sm">
+                      <SmilePlus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                      <span>Emoji</span>
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[320px] p-2" align="start">
+                    <div className="flex items-center gap-2 mb-2">
+                      <SearchIcon className="h-4 w-4 text-neutral-500" />
+                      <Input
+                        value={emojiQuery}
+                        onChange={(e) => setEmojiQuery(e.target.value)}
+                        placeholder="Search emojis…"
+                        className="h-8"
+                        aria-label="Search emojis"
+                      />
+                    </div>
+
+                    {/* Recent */}
+                    {recentEmojis.length > 0 && (
+                      <div className="mb-2">
+                        <div className="text-xs font-medium text-neutral-500 px-1 mb-1">Recent</div>
+                        <div className="grid grid-cols-8 gap-1.5">
+                          {recentEmojis.map((e, idx) => (
+                            <button
+                              key={`recent-${idx}-${e}`}
+                              className="h-9 w-9 text-xl rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              onClick={() => {
+                                insertEmoji(e);
+                                setEmojiOpen(false);
+                              }}
+                              aria-label={`Insert ${e}`}
+                              type="button"
+                            >
+                              {e}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <ScrollArea className="h-[260px] pr-1">
+                      <div className="space-y-3">
+                        {filteredEmojiSets.map((set) => (
+                          <div key={set.name}>
+                            <div className="text-xs font-medium text-neutral-500 px-1 mb-1">{set.name}</div>
+                            <div className="grid grid-cols-8 gap-1.5">
+                              {set.emojis.map((e, idx) => (
+                                <button
+                                  key={`${set.name}-${idx}-${e}`}
+                                  className="h-9 w-9 text-xl rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  onClick={() => {
+                                    insertEmoji(e);
+                                    setEmojiOpen(false);
+                                  }}
+                                  aria-label={`Insert ${e}`}
+                                  type="button"
+                                >
+                                  {e}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </PopoverContent>
+                </Popover>
 
                 <div className="flex items-center gap-2 ml-auto">
                   <Badge

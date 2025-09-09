@@ -133,9 +133,6 @@ export default function FeedPage() {
     window.setTimeout(() => setShowNewChip(false), 1800);
   };
 
-  const handlePostDeleted = (postId) =>
-    setPosts((prev) => prev.filter((p) => p._id !== postId));
-
   const Header = (
     <div className="border-b bg-background">
       <div className="max-w-2xl mx-auto px-3 sm:px-4">

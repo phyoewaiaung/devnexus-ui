@@ -18,8 +18,22 @@ export const createPost = ({ text, image, tags }) => {
 export const deletePost = (id) =>
   client.delete(`/api/posts/${id}`).then(r => r.data);
 
-export const getFeed = (page = 1, limit = 10) =>
-  client.get(`/api/posts/feed`, { params: { page, limit } }).then(r => r.data);
+export const getFeed = (page = 1, limit = 10, opts = {}) => {
+  const { type = 'for-you', lang, tag } = opts || {};
+  const endpoint = type === 'following' ? '/api/posts/feed/following' : '/api/posts/feed';
+
+  const params = { page, limit };
+  if (lang) params.lang = Array.isArray(lang) ? lang.join(',') : String(lang);
+  if (tag) params.tag = Array.isArray(tag) ? tag.join(',') : String(tag);
+
+  return client
+    .get(endpoint, { params, withCredentials: true })
+    .then((r) => {
+      const { posts = [], page: respPage = page, limit: respLimit = limit } = r.data || {};
+      const hasMore = posts.length >= respLimit;
+      return { posts, page: respPage, limit: respLimit, hasMore };
+    });
+};
 
 export const getPostsByUser = (username) =>
   client.get(`/api/posts/user/${encodeURIComponent(username)}`).then(r => r.data);
