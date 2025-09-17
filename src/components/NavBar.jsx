@@ -1,14 +1,16 @@
 // src/components/NavBar.jsx
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useNotifications } from "@/context/NotificationsContext";
+import { useChat } from "@/context/ChatContext";
 import { useInstallPrompt } from "@/hooks/useInstallPrompt";
 
 // shadcn/ui
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuLabel,
@@ -17,8 +19,13 @@ import {
 // icons
 import {
   Home, LogOut, LogIn, UserPlus, Bell, Search as SearchIcon,
-  User, PencilLine, Download
+  User, PencilLine, Download, MessageSquare, Settings, Sun, Moon,
+  Plus, TrendingUp, Monitor
 } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+// robust asset import (works in dev & prod)
+import logoUrl from "@/assets/transparent.png";
 
 /* ------------------------------------------------------ */
 
@@ -30,276 +37,364 @@ export default function NavBar() {
   // PWA install
   const { canInstall, promptInstall, isStandalone } = useInstallPrompt();
 
-  // simple theme toggle (no next-themes)
-  const [isDark, setIsDark] = useState(
-    typeof window !== "undefined" && document.documentElement.classList.contains("dark")
-  );
+  // Enhanced theme system
+  const [theme, setTheme] = useState("light");
 
+  // Chat badge - call hook unconditionally at component level
+  const chatBadgeCount = useChatBadge();
+  // apply theme and (for system) live-update on OS theme changes
   useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add("dark");
-      localStorage.setItem("theme", "dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-      localStorage.setItem("theme", "light");
-    }
-  }, [isDark]);
-
-  useEffect(() => {
-    const saved = localStorage.getItem("theme");
-    if (saved === "dark") setIsDark(true);
+    const saved = localStorage.getItem("theme") || "light";
+    setTheme(saved);
   }, []);
 
-  const isActive = (to) => (to === "/" ? location.pathname === "/" : location.pathname.startsWith(to));
+  useEffect(() => {
+    const root = document.documentElement;
+    const mm = window.matchMedia?.("(prefers-color-scheme: dark)");
 
-  // search
+    const apply = (mode) => {
+      if (mode === "system") {
+        const isDark = !!mm?.matches;
+        root.classList.toggle("dark", isDark);
+      } else {
+        root.classList.toggle("dark", mode === "dark");
+      }
+      localStorage.setItem("theme", mode);
+    };
+
+    apply(theme);
+
+    if (theme === "system" && mm?.addEventListener) {
+      const handler = () => apply("system");
+      mm.addEventListener("change", handler);
+      return () => mm.removeEventListener("change", handler);
+    }
+  }, [theme]);
+
+  const toggleTheme = (newTheme) => setTheme(newTheme);
+
+  const isActive = (to) =>
+    to === "/" ? location.pathname === "/" : location.pathname.startsWith(to);
+
+  // Enhanced search with loading tied to navigation
   const [query, setQuery] = useState("");
+  const [searchLoading, setSearchLoading] = useState(false);
+
   const onSearch = (e) => {
     e.preventDefault();
     const q = query.trim();
-    if (q) navigate(`/search?q=${encodeURIComponent(q)}`);
+    if (!q || searchLoading) return;
+    setSearchLoading(true);
+    navigate(`/search?q=${encodeURIComponent(q)}`);
   };
 
-  const NavLink = ({ to, children, className = "" }) => (
+  // Reset loading whenever the route changes
+  useEffect(() => {
+    if (searchLoading) setSearchLoading(false);
+  }, [location.key, searchLoading]);
+
+  const NavLink = ({ to, children, className = "", badge = null }) => (
     <Link
       to={to}
-      className={
-        "px-3 py-2 text-sm font-medium rounded-xl ios-transition " +
-        (isActive(to)
-          ? "text-foreground bg-accent/60"
-          : "text-muted-foreground hover:text-foreground hover:bg-accent/40") +
-        (className ? " " + className : "")
-      }
+      className={cn(
+        "relative flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-xl transition-all duration-200",
+        "hover:scale-[1.02] active:scale-[0.98]",
+        isActive(to)
+          ? "text-primary bg-primary/10 shadow-sm"
+          : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+        className
+      )}
       aria-current={isActive(to) ? "page" : undefined}
     >
       {children}
+      {badge && badge > 0 && (
+        <Badge variant="destructive" className="absolute -top-1 -right-1 h-5 min-w-[20px] text-xs px-1.5 animate-pulse">
+          {badge > 99 ? "99+" : badge}
+        </Badge>
+      )}
     </Link>
   );
 
   return (
-    <header className="sticky top-0 z-[9999] w-full border-b border-border/70 bg-background/70 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
-      <nav className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-3 md:h-[60px] md:gap-4 md:px-4">
-        {/* Brand */}
-        <Link to="/" className="flex items-center gap-2 shrink-0">
-          <img
-            src="/src/assets/transparent.png"
-            alt="DevNexus"
-            className="h-6 w-auto sm:h-8 object-contain"
-          />
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-[#3C81D2] to-[#8B5CF6] bg-clip-text text-transparent whitespace-nowrap">
-            DevNexus
-          </h1>
+    <header className="sticky top-0 z-[9999] w-full border-b border-border/40 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60 shadow-sm">
+      <nav className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 lg:px-6">
+        {/* Enhanced Brand */}
+        <Link
+          to="/"
+          className="flex items-center gap-3 shrink-0 hover:scale-105 transition-transform duration-200"
+        >
+          <div className="relative">
+            <img
+              src={logoUrl}
+              alt="DevNexus"
+              className="h-8 w-8 object-contain"
+            />
+            <div className="absolute -inset-1 bg-gradient-to-r from-[#3C81D2] to-[#8B5CF6] rounded-full opacity-20 blur-sm"></div>
+          </div>
+          <div className="hidden sm:block">
+            <h1 className="text-xl font-bold bg-gradient-to-r from-[#3C81D2] to-[#8B5CF6] bg-clip-text text-transparent">
+              DevNexus
+            </h1>
+            <div className="text-xs text-muted-foreground -mt-1">Developer Community</div>
+          </div>
         </Link>
 
-        {/* Desktop links */}
-        <div className="ml-2 hidden items-center gap-1 md:flex">
-          <NavLink to="/" className="flex items-center gap-2">
+        {/* Enhanced Desktop Navigation */}
+        <div className="hidden lg:flex items-center gap-2 ml-4">
+          <NavLink to="/">
             <Home className="h-4 w-4" />
             <span>Feed</span>
           </NavLink>
+
           {user && (
-            <NavLink to={`/u/${user.username}`} className="flex items-center gap-2">
-              <User className="h-4 w-4" />
-              <span>Profile</span>
-            </NavLink>
-          )}
-          {user && (
-            <NavLink to="/settings/profile" className="flex items-center gap-2">
-              <PencilLine className="h-4 w-4" />
-              <span>Edit Profile</span>
-            </NavLink>
+            <>
+              <NavLink to="/chats" badge={chatBadgeCount ? chatBadgeCount : null}>
+                <MessageSquare className="h-4 w-4" />
+                <span>Chats</span>
+              </NavLink>
+
+              <NavLink to={`/u/${user.username}`}>
+                <User className="h-4 w-4" />
+                <span>Profile</span>
+              </NavLink>
+            </>
           )}
         </div>
 
+        {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Search (desktop) */}
-        <form onSubmit={onSearch} className="hidden items-center gap-2 md:flex">
-          <div className="relative">
-            <SearchIcon className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        {/* Enhanced Search */}
+        <form onSubmit={onSearch} className="hidden md:flex items-center relative">
+          <div className="relative group">
+            <SearchIcon
+              className={cn(
+                "absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 transition-colors",
+                searchLoading ? "text-primary animate-spin" : "text-muted-foreground group-focus-within:text-primary"
+              )}
+            />
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search devs, posts, tags…"
-              className="w-64 pl-8 rounded-2xl bg-background/70 backdrop-blur-md border border-border/60
-                         shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] focus-visible:ring-2 focus-visible:ring-ring ios-transition"
+              placeholder="Search developers, posts, topics..."
+              disabled={searchLoading}
+              className={cn(
+                "w-80 pl-10 pr-8 h-10 rounded-full border-border/60 bg-background/50",
+                "focus:w-96 transition-all duration-300 focus:shadow-lg focus:shadow-primary/20",
+                "placeholder:text-muted-foreground/70"
+              )}
             />
+            {query && !searchLoading && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setQuery("")}
+                aria-label="Clear search"
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 hover:bg-accent/50"
+              >
+                ×
+              </Button>
+            )}
           </div>
         </form>
 
-        {/* Right actions */}
-        <div className="ml-1 flex items-center gap-1 md:ml-2 md:gap-2">
-
-          {/* Install: only when not installed and prompt available */}
-          {!isStandalone && canInstall && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={promptInstall}
-              className="hidden md:inline-flex gap-2 rounded-2xl ios-transition hit"
-              aria-label="Install DevNexus"
-              title="Install DevNexus"
-            >
-              <Download className="h-4 w-4" />
-              Install
-            </Button>
-          )}
-
-          {/* Real-time notifications bell */}
-          {user && <NotiBell />}
-
-          {/* theme toggle */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setIsDark((v) => !v)}
-            aria-label="Toggle theme"
-            className="ios-transition hover:scale-[1.05] active:scale-[0.98]"
-          >
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none">
-              {isDark ? (
-                <path
-                  d="M12 18a6 6 0 100-12 6 6 0 000 12zM12 2v2m0 16v2m10-10h-2M4 12H2m15.364 6.364l-1.414-1.414M6.05 6.05 4.636 4.636m12.728 0-1.414 1.414M6.05 17.95l-1.414 1.414"
-                  stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                />
-              ) : (
-                <path
-                  d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z"
-                  stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"
-                />
-              )}
-            </svg>
-          </Button>
-
-          {user ? <UserMenu user={user} onLogout={logout} /> : <AuthButtons />}
-        </div>
-      </nav>
-
-      {/* compact mobile link row */}
-      <div className="md:hidden border-t border-border/70 bg-background/70 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-6xl items-center gap-1 px-3 py-2">
-          <Link
-            to="/"
-            className={`text-sm px-2 py-1 rounded-xl ios-transition ${location.pathname === "/"
-              ? "bg-accent/60 text-foreground"
-              : "text-muted-foreground hover:text-foreground hover:bg-accent/40"
-              }`}
-          >
-            Feed
-          </Link>
+        {/* Enhanced Quick Actions */}
+        <div className="flex items-center gap-2">
+          {/* Create Post Button */}
           {user && (
-            <>
-              <Link
-                to={`/u/${user.username}`}
-                className={`text-sm px-2 py-1 rounded-xl ios-transition ${location.pathname.startsWith("/u/")
-                  ? "bg-accent/60 text-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent/40"
-                  }`}
-              >
-                Profile
-              </Link>
-              <Link
-                to="/settings/profile"
-                className={`text-sm px-2 py-1 rounded-xl ios-transition ${location.pathname.startsWith("/settings")
-                  ? "bg-accent/60 text-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent/40"
-                  }`}
-              >
-                Edit Profile
-              </Link>
-            </>
-          )}
-
-          {/* Mobile "Install" action */}
-          {!isStandalone && canInstall && (
             <Button
               variant="outline"
               size="sm"
-              onClick={promptInstall}
-              className="ml-auto gap-2 rounded-2xl ios-transition hit"
-              aria-label="Install DevNexus"
+              asChild
+              className="hidden md:flex items-center gap-2 rounded-full hover:bg-primary hover:text-primary-foreground transition-colors"
             >
-              <Download className="h-4 w-4" />
-              Install
+              <Link to="/create">
+                <Plus className="h-4 w-4" />
+                <span>Create</span>
+              </Link>
             </Button>
           )}
+
+          {/* Install PWA */}
+          {!isStandalone && canInstall && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={promptInstall}
+              className="hidden lg:flex rounded-full hover:bg-accent/50 transition-colors"
+              title="Install DevNexus App"
+              aria-label="Install DevNexus App"
+            >
+              <Download className="h-4 w-4" />
+            </Button>
+          )}
+
+          {/* Enhanced Notifications */}
+          {user && <EnhancedNotiBell />}
+
+          {/* Enhanced Theme Toggle */}
+          <ThemeToggle theme={theme} onThemeChange={toggleTheme} />
+
+          {/* User Menu or Auth */}
+          {user ? <EnhancedUserMenu user={user} onLogout={logout} /> : <AuthButtons />}
         </div>
-      </div>
+      </nav>
+
+      {/* Enhanced Mobile Bottom Navigation */}
+      <MobileNavTabs />
     </header>
   );
 }
 
-/* ------------------------- Subcomponents ------------------------- */
+/* ------------------------- Enhanced Components ------------------------- */
 
 function AuthButtons() {
   return (
-    <div className="hidden items-center gap-2 md:flex">
-      <Button variant="outline" size="sm" asChild className="rounded-2xl ios-transition hit">
-        <Link to="/login"><LogIn className="mr-2 h-4 w-4" /> Login</Link>
+    <div className="flex items-center gap-2">
+      <Button
+        variant="ghost"
+        size="sm"
+        asChild
+        className="rounded-full hover:bg-accent/50 transition-colors"
+      >
+        <Link to="/login">
+          <LogIn className="mr-2 h-4 w-4" />
+          <span className="hidden sm:inline">Login</span>
+        </Link>
       </Button>
-      <Button size="sm" asChild className="rounded-2xl ios-transition hit">
-        <Link to="/register"><UserPlus className="mr-2 h-4 w-4" /> Register</Link>
+      <Button
+        size="sm"
+        asChild
+        className="rounded-full bg-gradient-to-r from-[#3C81D2] to-[#8B5CF6] hover:shadow-lg transition-all"
+      >
+        <Link to="/register">
+          <UserPlus className="mr-2 h-4 w-4" />
+          <span className="hidden sm:inline">Join</span>
+        </Link>
       </Button>
     </div>
   );
 }
 
-function UserMenu({ user, onLogout }) {
-  const initials = (user?.name || user?.username || "?").trim().slice(0, 2).toUpperCase();
+function ThemeToggle({ theme, onThemeChange }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="gap-2 rounded-2xl ios-transition">
-          <Avatar className="h-6 w-6">
-            {user?.avatarUrl ? <AvatarImage src={user.avatarUrl} alt={user?.name || "Avatar"} /> : null}
-            <AvatarFallback>{initials}</AvatarFallback>
-          </Avatar>
-          <span className="max-w-[120px] truncate text-sm font-medium">{user?.name || user?.username}</span>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="rounded-full hover:bg-accent/50 transition-colors"
+          aria-label="Change theme"
+        >
+          {theme === "dark" && <Moon className="h-4 w-4" />}
+          {theme === "light" && <Sun className="h-4 w-4" />}
+          {/* {theme === "system" && <Monitor className="h-4 w-4" />} */}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56 rounded-2xl border border-border/60 bg-card/80 backdrop-blur-xl">
-        <DropdownMenuLabel>
-          <div className="truncate font-semibold">{user?.name || user?.username}</div>
-          <div className="truncate text-xs text-muted-foreground">@{user?.username}</div>
+      <DropdownMenuContent align="end" className="w-40 rounded-xl z-[9999]">
+        <DropdownMenuItem onClick={() => onThemeChange("light")} className="gap-2">
+          <Sun className="h-4 w-4" />
+          Light
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onThemeChange("dark")} className="gap-2">
+          <Moon className="h-4 w-4" />
+          Dark
+        </DropdownMenuItem>
+        {/* <DropdownMenuItem onClick={() => onThemeChange("system")} className="gap-2">
+          <Monitor className="h-4 w-4" />
+          System
+        </DropdownMenuItem> */}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function EnhancedUserMenu({ user, onLogout }) {
+  const initials = (user?.name || user?.username || "?").trim().slice(0, 2).toUpperCase();
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          className="relative h-10 w-10 rounded-full hover:ring-2 hover:ring-primary/20 transition-all"
+          aria-label="User menu"
+        >
+          <Avatar className="h-9 w-9">
+            <AvatarImage src={user?.avatarUrl} alt={user?.name || "Avatar"} />
+            <AvatarFallback className="bg-gradient-to-br from-[#3C81D2] to-[#8B5CF6] text-white text-sm">
+              {initials}
+            </AvatarFallback>
+          </Avatar>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64 rounded-xl border-border/60 bg-card/95 backdrop-blur-xl z-[9999]">
+        <DropdownMenuLabel className="pb-2">
+          <div className="flex items-center gap-3">
+            <Avatar className="h-10 w-10">
+              <AvatarImage src={user?.avatarUrl} />
+              <AvatarFallback className="bg-gradient-to-br from-[#3C81D2] to-[#8B5CF6] text-white">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold truncate">{user?.name || user?.username}</div>
+              <div className="text-xs text-muted-foreground truncate">@{user?.username}</div>
+            </div>
+          </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem asChild><Link to={`/u/${user.username}`}>Profile</Link></DropdownMenuItem>
-        <DropdownMenuItem asChild><Link to="/settings/profile">Edit Profile</Link></DropdownMenuItem>
-        <DropdownMenuItem asChild><Link to="/settings">Settings</Link></DropdownMenuItem>
+
+        <DropdownMenuItem asChild className="gap-3">
+          <Link to={`/u/${user.username}`}>
+            <User className="h-4 w-4" />
+            View Profile
+          </Link>
+        </DropdownMenuItem>
+
+        <DropdownMenuItem asChild className="gap-3">
+          <Link to="/settings/profile">
+            <PencilLine className="h-4 w-4" />
+            Edit Profile
+          </Link>
+        </DropdownMenuItem>
+
+        <DropdownMenuItem asChild className="gap-3">
+          <Link to="/settings">
+            <Settings className="h-4 w-4" />
+            Settings
+          </Link>
+        </DropdownMenuItem>
+
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={onLogout} className="text-destructive">
-          <LogOut className="mr-2 h-4 w-4" /> Logout
+
+        <DropdownMenuItem
+          onClick={onLogout}
+          className="gap-3 text-destructive focus:text-destructive"
+        >
+          <LogOut className="h-4 w-4" />
+          Sign Out
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
 
-/**
- * Real-time Notifications Bell
- * - shows unread badge
- * - lists latest items in a dropdown
- * - marks all as read when the dropdown opens
- *
- * Requires:
- *  - NotificationsProvider wrapping the app
- *  - Server emits: 'notification:new', 'notification:remove' (optional 'notification:count')
- *  - REST endpoints: GET /api/notifications, POST /api/notifications/read
- */
-function NotiBell() {
+function EnhancedNotiBell() {
   const { items, unread, markAllRead } = useNotifications();
   const navigate = useNavigate();
 
   const sorted = useMemo(
-    () => [...items].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 20),
+    () =>
+      [...items]
+        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+        .slice(0, 10),
     [items]
   );
 
-  const initials = (s) => (s || "U").slice(0, 2).toUpperCase();
-
   const openPost = (postId) => {
-    if (!postId) return;
-    navigate(`/p/${postId}`);
+    if (postId) navigate(`/p/${postId}`);
   };
 
   return (
@@ -308,61 +403,144 @@ function NotiBell() {
         <Button
           variant="ghost"
           size="icon"
-          className="relative hidden md:inline-flex ios-transition hover:scale-[1.05] active:scale-[0.98]"
+          className="relative rounded-full hover:bg-accent/50 transition-colors"
           aria-label="Notifications"
         >
-          <Bell className="h-5 w-5" />
+          <Bell className="h-4 w-4" />
           {unread > 0 && (
-            <span
-              className="absolute -right-1 -top-1 h-5 min-w-[1.25rem] rounded-full bg-red-600 px-1.5 text-xs font-semibold leading-5 text-white"
-              aria-live="polite"
+            <Badge
+              variant="destructive"
+              className="absolute -top-1 -right-1 h-5 min-w-[20px] text-xs px-1.5 animate-pulse"
             >
               {unread > 99 ? "99+" : unread}
-            </span>
+            </Badge>
           )}
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="end" className="w-80 rounded-2xl border border-border/60 bg-card/80 backdrop-blur-xl p-0">
-        <div className="p-3">
-          <DropdownMenuLabel className="flex items-center justify-between p-0">
-            <span className="text-sm font-semibold">Notifications</span>
-            {unread > 0 ? <span className="text-xs text-muted-foreground">{unread} new</span> : null}
-          </DropdownMenuLabel>
+      <DropdownMenuContent align="end" className="w-80 rounded-xl border-border/60 bg-card/95 backdrop-blur-xl p-0">
+        <div className="p-4 border-b border-border/60">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold">Notifications</h3>
+            {unread > 0 && (
+              <Badge variant="secondary" className="text-xs">
+                {unread} new
+              </Badge>
+            )}
+          </div>
         </div>
-        <DropdownMenuSeparator />
-        <div className="max-h-96 overflow-auto">
-          {sorted.length === 0 && (
-            <div className="p-4 text-sm text-muted-foreground">No notifications yet.</div>
-          )}
-          {sorted.map((n) => {
-            const id = String(n._id || n.id);
-            const actor = n.actor || {};
-            const postId = n.postId || n.post?._id;
-            const when = new Date(n.createdAt).toLocaleString();
 
-            return (
-              <DropdownMenuItem
-                key={id}
-                className={`gap-3 items-start cursor-pointer ${!n.read ? "bg-accent/30" : ""}`}
-                onClick={() => openPost(postId)}
-              >
-                <Avatar className="h-7 w-7">
-                  {actor.avatarUrl ? <AvatarImage src={actor.avatarUrl} /> : null}
-                  <AvatarFallback>{initials(actor.username)}</AvatarFallback>
-                </Avatar>
-                <div className="flex-1 text-sm leading-tight">
-                  <div className="text-foreground">
-                    <strong>@{actor.username || "user"}</strong>{" "}
-                    {n.type === "like" ? "liked your post" : "commented on your post"}
-                  </div>
-                  <div className="text-xs text-muted-foreground">{when}</div>
-                </div>
-              </DropdownMenuItem>
-            );
-          })}
+        <div className="max-h-96 overflow-y-auto">
+          {sorted.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground">
+              <Bell className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <div className="text-sm">No notifications yet</div>
+            </div>
+          ) : (
+            sorted.map((notification) => (
+              <NotificationItem
+                key={notification._id || notification.id}
+                notification={notification}
+                onClick={() => openPost(notification.postId || notification.post?._id)}
+              />
+            ))
+          )}
         </div>
+
+        {sorted.length > 0 && (
+          <div className="p-3 border-t border-border/60">
+            <Button variant="ghost" size="sm" asChild className="w-full rounded-full">
+              <Link to="/noti">View All Notifications</Link>
+            </Button>
+          </div>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function NotificationItem({ notification, onClick }) {
+  const actor = notification.actor || {};
+  const whenStr = (() => {
+    try {
+      return new Date(notification.createdAt).toLocaleString();
+    } catch {
+      return "";
+    }
+  })();
+  const initials = (actor.username || "U").slice(0, 2).toUpperCase();
+
+  return (
+    <DropdownMenuItem
+      className={cn(
+        "flex items-start gap-3 p-4 cursor-pointer border-l-2 transition-colors",
+        !notification.read
+          ? "border-l-primary bg-primary/5"
+          : "border-l-transparent"
+      )}
+      onClick={onClick}
+    >
+      <Avatar className="h-8 w-8 shrink-0">
+        <AvatarImage src={actor.avatarUrl} />
+        <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+      </Avatar>
+
+      <div className="flex-1 min-w-0">
+        <p className="text-sm leading-tight">
+          <span className="font-medium">@{actor.username || "user"}</span>
+          <span className="text-muted-foreground ml-1">
+            {notification.type === "like" ? "liked your post" : "commented on your post"}
+          </span>
+        </p>
+        <p className="text-xs text-muted-foreground mt-1">{whenStr}</p>
+      </div>
+    </DropdownMenuItem>
+  );
+}
+
+function MobileNavTabs() {
+  const { user } = useAuth();
+  const location = useLocation();
+
+  if (!user) return null;
+
+  const tabs = [
+    { path: "/", label: "Feed" },
+    { path: "/chats", label: "Chats" },
+    // { path: "/explore", label: "Explore" },
+    { path: `/u/${user.username}`, label: "Profile" },
+  ];
+
+  return (
+    <div className="lg:hidden border-t border-border/40 bg-background/90 backdrop-blur-xl">
+      <div className="flex items-center justify-around px-2 py-1">
+        {tabs.map(({ path, label }) => {
+          const active = path === "/" ? location.pathname === "/" : location.pathname.startsWith(path);
+          return (
+            <Link
+              key={path}
+              to={path}
+              className={cn(
+                "flex-1 text-center py-2 px-3 text-xs font-medium rounded-lg transition-colors",
+                active
+                  ? "text-primary bg-primary/10"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent/30"
+              )}
+            >
+              {label}
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Helper hook for chat badge count (memoized)
+function useChatBadge() {
+  const { conversations } = useChat();
+  return useMemo(
+    () => (conversations?.reduce((sum, conv) => sum + (conv.unread || 0), 0) || 0),
+    [conversations]
   );
 }

@@ -17,6 +17,7 @@ import PrivateRoute from "./components/PrivateRoute";
 // shadcn/ui
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { MessageSquare } from "lucide-react";
 
 // icons
 import { Home, TrendingUp, Plus, User as UserIcon, Bell } from "lucide-react";
@@ -25,6 +26,9 @@ import { Toaster } from "sonner";
 import { useEffect } from "react";
 import { setupInterceptors } from "./api/client";
 import PostDetail from "./pages/PostDetail";
+import ChatsPage from "./pages/ChatsPage";
+import ConversationPage from "./pages/ConversationPage";
+import { useChat } from "./context/ChatContext";
 
 export default function App() {
   const navigate = useNavigate();
@@ -56,6 +60,8 @@ export default function App() {
               <Route path="/noti" element={<NotificationsPage />} />
               <Route path="/p/:id" element={<PostDetail />} />
               <Route path="/settings/profile" element={<EditProfilePage />} />
+              <Route path="/chats" element={<ChatsPage />} />
+              <Route path="/chats/:id" element={<ConversationPage />} />
             </Route>
 
             {/* 404 (protected by default; move it outside if you want public 404) */}
@@ -136,16 +142,18 @@ function AuthShell() {
 function MobileBottomNav() {
   const { user } = useAuth();
   const location = useLocation();
-  const { unread } = useNotifications(); // ← get unread count
+  const { unread } = useNotifications();
+  const { conversations } = useChat();
+
+  const chatUnread = conversations.reduce((a, c) => a + (c.unread || 0), 0);
 
   const navItems = [
     { to: "/", icon: Home, label: "Home" },
-    { to: "/trends", icon: TrendingUp, label: "Trends" },
+    { to: "/chats", icon: MessageSquare, label: "Chats", badge: chatUnread },
     { to: "/post", icon: Plus, label: "Post" },
-    { to: "/noti", icon: Bell, label: "Noti" }, // route you already use
+    { to: "/noti", icon: Bell, label: "Noti", badge: unread },
     { to: user ? `/u/${user.username}` : "/login", icon: UserIcon, label: "Profile" },
   ];
-
   return (
     <nav className="fixed inset-x-0 bottom-0 z-50 md:hidden">
       <div className="mx-auto max-w-md px-3 pb=[calc(env(safe-area-inset-bottom)+8px)]">

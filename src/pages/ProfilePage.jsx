@@ -1,6 +1,6 @@
-// src/pages/ProfilePage.jsx — Polished shadcn UI/UX with cover upload (immediate toggle follow)
+// src/pages/ProfilePage.jsx — Polished shadcn UI/UX with cover upload + chat-ready
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   getPublicProfile,
@@ -37,14 +37,20 @@ import {
   PencilLine,
   ImagePlus,
   Trash2,
+  MessageSquare,
 } from 'lucide-react';
 
 // toast
 import { toast } from 'sonner';
 
+// 🔌 chat
+import { useChat } from '@/context/ChatContext';
+
 export default function ProfilePage() {
   const { username } = useParams();
   const { user: me } = useAuth();
+  const navigate = useNavigate();
+  const { startDM, presence } = useChat(); // presence: Map(userId -> bool)
 
   const [profile, setProfile] = useState(null);
   const [posts, setPosts] = useState([]);
@@ -67,19 +73,17 @@ export default function ProfilePage() {
         ]);
         if (!alive) return;
 
-        // Normalize isFollowing so UI has a single source of truth
-        const normalized =
-          user
-            ? {
-              ...user,
-              isFollowing:
-                typeof user.isFollowing === 'boolean'
-                  ? user.isFollowing
-                  : Array.isArray(user.followers) && me?._id
-                    ? user.followers.includes(me._id)
-                    : false,
-            }
-            : null;
+        const normalized = user
+          ? {
+            ...user,
+            isFollowing:
+              typeof user.isFollowing === 'boolean'
+                ? user.isFollowing
+                : Array.isArray(user.followers) && me?._id
+                  ? user.followers.includes(me._id)
+                  : false,
+          }
+          : null;
 
         setProfile(normalized);
         const mapped = (postsResp.posts || []).map((p) => ({
@@ -96,48 +100,49 @@ export default function ProfilePage() {
         setLoadingPosts(false);
       }
     })();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [username, me]);
 
   const onFollow = async () => {
-    try {
-      await followUser(username);
-      setProfile((prev) =>
-        prev
-          ? {
-            ...prev,
-            followersCount: (prev.followersCount || 0) + 1,
-            isFollowing: true,
-            followers: Array.isArray(prev.followers) && me?._id
-              ? Array.from(new Set([...prev.followers, me._id]))
-              : prev.followers,
-          }
-          : prev
-      );
-    } catch (e) {
-      throw e; // let caller handle revert+toast
-    }
+    await followUser(username);
+    setProfile((prev) =>
+      prev
+        ? {
+          ...prev,
+          followersCount: (prev.followersCount || 0) + 1,
+          isFollowing: true,
+          followers: Array.isArray(prev.followers) && me?._id
+            ? Array.from(new Set([...prev.followers, me._id]))
+            : prev.followers,
+        }
+        : prev
+    );
   };
 
   const onUnfollow = async () => {
+    await unfollowUser(username);
+    setProfile((prev) =>
+      prev
+        ? {
+          ...prev,
+          followersCount: Math.max((prev.followersCount || 1) - 1, 0),
+          isFollowing: false,
+          followers: Array.isArray(prev.followers) && me?._id
+            ? prev.followers.filter((id) => id !== me._id)
+            : prev.followers,
+        }
+        : prev
+    );
+  };
+
+  // 🟢 Quick DM from profile
+  const startChat = async () => {
     try {
-      await unfollowUser(username);
-      setProfile((prev) =>
-        prev
-          ? {
-            ...prev,
-            followersCount: Math.max((prev.followersCount || 1) - 1, 0),
-            isFollowing: false,
-            followers: Array.isArray(prev.followers) && me?._id
-              ? prev.followers.filter((id) => id !== me._id)
-              : prev.followers,
-          }
-          : prev
-      );
+      if (!profile?._id) return;
+      const conv = await startDM(profile._id);
+      navigate(`/chats/${conv._id}`);
     } catch (e) {
-      throw e; // let caller handle revert+toast
+      toast.error(e.message || 'Failed to start chat');
     }
   };
 
@@ -149,9 +154,7 @@ export default function ProfilePage() {
     );
   }
 
-  if (loadingProfile) {
-    return <HeaderSkeleton />;
-  }
+  if (loadingProfile) return <HeaderSkeleton />;
 
   if (!profile) {
     return (
@@ -160,6 +163,9 @@ export default function ProfilePage() {
       </Card>
     );
   }
+
+  // presence map may use string keys
+  const isOnline = presence?.get?.(String(profile._id)) || false;
 
   return (
     <div className="space-y-4">
@@ -171,6 +177,8 @@ export default function ProfilePage() {
         onCoverChange={(urlOrNull) =>
           setProfile((p) => (p ? { ...p, coverUrl: urlOrNull } : p))
         }
+        onStartChat={startChat}
+        isOnline={isOnline}
       />
 
       <Tabs defaultValue="posts" className="w-full">
@@ -207,30 +215,21 @@ export default function ProfilePage() {
   );
 }
 
-function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange }) {
+function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange, onStartChat, isOnline }) {
   const [uploading, setUploading] = useState(false);
-  const [pending, setPending] = useState(false);     // prevent dup taps
-  const [following, setFollowing] = useState(!!profile.isFollowing); // local optimistic state
+  const [pending, setPending] = useState(false);
+  const [following, setFollowing] = useState(!!profile.isFollowing);
   const fileInputRef = useRef(null);
 
-  // keep local following in sync if parent updates (e.g., initial load)
-  useEffect(() => {
-    setFollowing(!!profile.isFollowing);
-  }, [profile.isFollowing]);
+  useEffect(() => { setFollowing(!!profile.isFollowing); }, [profile.isFollowing]);
 
   const pickFile = () => fileInputRef.current?.click();
 
   const handleFile = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      toast.error('Please select an image file');
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('Cover must be ≤ 5 MB');
-      return;
-    }
+    if (!file.type.startsWith('image/')) return toast.error('Please select an image file');
+    if (file.size > 5 * 1024 * 1024) return toast.error('Cover must be ≤ 5 MB');
 
     setUploading(true);
     try {
@@ -258,24 +257,16 @@ function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange }) {
     }
   };
 
-  // 🚀 Immediate (optimistic) toggle like FB/Twitter:
-  // - Flip UI state instantly
-  // - Fire API in background
-  // - Revert + toast on failure
   const toggleFollow = async () => {
     if (pending) return;
     const next = !following;
-    setFollowing(next);      // optimistic UI
+    setFollowing(next);
     setPending(true);
-
     try {
-      if (next) {
-        await onFollow?.();
-      } else {
-        await onUnfollow?.();
-      }
+      if (next) await onFollow?.();
+      else await onUnfollow?.();
     } catch (e) {
-      setFollowing(!next);   // revert
+      setFollowing(!next);
       toast.error(e.message || (next ? 'Failed to follow' : 'Failed to unfollow'));
     } finally {
       setPending(false);
@@ -306,7 +297,6 @@ function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange }) {
               className="hidden"
               onChange={handleFile}
             />
-
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="sm" variant="secondary" disabled={uploading} className="shadow">
@@ -314,7 +304,7 @@ function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange }) {
                   {uploading ? 'Updating…' : 'Change cover'}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuContent align="end" className="w-40 bg-white">
                 <DropdownMenuItem onClick={pickFile}>
                   <ImagePlus className="mr-2 h-4 w-4" />
                   Upload…
@@ -334,15 +324,26 @@ function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange }) {
       {/* Avatar + name + actions */}
       <div className="p-4 sm:p-6">
         <div className="-mt-12 flex items-center gap-4">
-          <Avatar className="h-20 w-20 ring-4 ring-background">
-            {profile.avatarUrl ? (
-              <AvatarImage src={profile.avatarUrl} alt={`${profile.username} avatar`} />
-            ) : (
-              <AvatarFallback className="text-lg">
-                {profile.name?.[0]?.toUpperCase() || profile.username?.[0]?.toUpperCase() || '?'}
-              </AvatarFallback>
+          <div className="relative">
+            <Avatar className="h-20 w-20 ring-4 ring-background select-none">
+              {profile.avatarUrl ? (
+                <AvatarImage src={profile.avatarUrl} alt={`${profile.username} avatar`} />
+              ) : (
+                <AvatarFallback className="text-lg">
+                  {profile.name?.[0]?.toUpperCase() || profile.username?.[0]?.toUpperCase() || '?'}
+                </AvatarFallback>
+              )}
+            </Avatar>
+            {/* Presence dot */}
+            {!isMe && (
+              <span
+                className={`absolute -right-0.5 -bottom-0.5 h-4 w-4 rounded-full border-2 border-background ${isOnline ? 'bg-emerald-500' : 'bg-muted'
+                  }`}
+                title={isOnline ? 'Online' : 'Offline'}
+                aria-label={isOnline ? 'Online' : 'Offline'}
+              />
             )}
-          </Avatar>
+          </div>
 
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-end gap-2">
@@ -356,6 +357,11 @@ function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange }) {
 
             <div className="mt-1 text-xs text-muted-foreground">
               roles: {(profile.roles || []).join(', ') || 'user'}
+              {!isMe && (
+                <span className="ml-2">
+                  • {isOnline ? <span className="text-emerald-600">Online</span> : 'Offline'}
+                </span>
+              )}
             </div>
           </div>
 
@@ -368,7 +374,6 @@ function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange }) {
             </Button>
           ) : (
             <div className="flex items-center gap-2">
-              {/* Single immediate-toggle button */}
               <Button
                 size="sm"
                 variant={following ? 'secondary' : 'default'}
@@ -379,6 +384,17 @@ function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange }) {
                 className="min-w-[96px]"
               >
                 {following ? 'Following' : 'Follow'}
+              </Button>
+
+              {/* 💬 Start chat */}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onStartChat}
+                className="min-w-[96px]"
+              >
+                <MessageSquare className="mr-2 h-4 w-4" />
+                Message
               </Button>
             </div>
           )}
@@ -432,7 +448,6 @@ function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange }) {
           </div>
 
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            {/* <span>Posts: {profile.postsCount ?? '-'}</span> */}
             <span>Followers: {profile.followersCount || 0}</span>
             <span>Following: {profile.followingCount || 0}</span>
           </div>
@@ -442,7 +457,7 @@ function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange }) {
   );
 }
 
-// --- replace AboutCard with this ---
+// --- keep existing AboutCard & skeletons (unchanged from your version) ---
 function InfoField({ label, children }) {
   return (
     <div>
@@ -472,7 +487,6 @@ function AboutCard({ profile }) {
 
   return (
     <Card className="p-6">
-      {/* Top: key facts */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="space-y-3">
           <InfoField label="Name">{profile.name || '-'}</InfoField>
@@ -493,9 +507,7 @@ function AboutCard({ profile }) {
               >
                 {socials.website}
               </a>
-            ) : (
-              '-'
-            )}
+            ) : ('-')}
           </InfoField>
 
           <div>
@@ -519,7 +531,6 @@ function AboutCard({ profile }) {
         </div>
       </div>
 
-      {/* Bottom: bio + skills */}
       {(profile.bio || (Array.isArray(profile.skills) && profile.skills.length > 0)) && (
         <>
           <Separator className="my-6" />
@@ -549,7 +560,6 @@ function AboutCard({ profile }) {
     </Card>
   );
 }
-
 
 function HeaderSkeleton() {
   return (
