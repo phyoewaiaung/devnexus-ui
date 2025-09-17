@@ -19,64 +19,61 @@ import {
 // icons
 import {
   Home, LogOut, LogIn, UserPlus, Bell, Search as SearchIcon,
-  User, PencilLine, Download, MessageSquare, Settings, Sun, Moon,
-  Plus, TrendingUp, Monitor
+  User, PencilLine, Download, MessageSquare, Settings, Sun, Moon, Plus
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // robust asset import (works in dev & prod)
 import logoUrl from "@/assets/transparent.png";
+import { updateTheme } from "@/api/users";
 
 /* ------------------------------------------------------ */
 
 export default function NavBar() {
-  const { user, logout } = useAuth();
+  const { user, logout, accessToken } = useAuth(); // accessToken optional; falls back to cookies if you use them
   const location = useLocation();
   const navigate = useNavigate();
 
   // PWA install
   const { canInstall, promptInstall, isStandalone } = useInstallPrompt();
 
-  // Enhanced theme system
-  const [theme, setTheme] = useState("light");
-
-  // Chat badge - call hook unconditionally at component level
-  const chatBadgeCount = useChatBadge();
-  // apply theme and (for system) live-update on OS theme changes
-  useEffect(() => {
-    const saved = localStorage.getItem("theme") || "light";
-    setTheme(saved);
-  }, []);
+  /* ----------------------------- THEME ------------------------------ */
+  // First render: prefer localStorage, then user.theme, else 'light'
+  const [theme, setTheme] = useState(() => {
+    const ls = safeGetLocalTheme();
+    if (ls === "light" || ls === "dark") return ls;
+    if (user?.theme === "light" || user?.theme === "dark") return user.theme;
+    return "light";
+  });
 
   useEffect(() => {
-    const root = document.documentElement;
-    const mm = window.matchMedia?.("(prefers-color-scheme: dark)");
-
-    const apply = (mode) => {
-      if (mode === "system") {
-        const isDark = !!mm?.matches;
-        root.classList.toggle("dark", isDark);
-      } else {
-        root.classList.toggle("dark", mode === "dark");
-      }
-      localStorage.setItem("theme", mode);
-    };
-
-    apply(theme);
-
-    if (theme === "system" && mm?.addEventListener) {
-      const handler = () => apply("system");
-      mm.addEventListener("change", handler);
-      return () => mm.removeEventListener("change", handler);
-    }
+    applyTheme(theme);
+    safeSetLocalTheme(theme);
   }, [theme]);
 
-  const toggleTheme = (newTheme) => setTheme(newTheme);
+  useEffect(() => {
+    if (user?.theme && user.theme !== theme) {
+      setTheme(user.theme);
+    }
+  }, [user?.theme]);
 
+  const toggleTheme = async (newTheme) => {
+    if (newTheme !== "light" && newTheme !== "dark") return;
+    setTheme(newTheme);
+    if (user) {
+      try {
+        const res = await updateTheme(newTheme);
+      } catch (e) {
+        console.log(e)
+      }
+    }
+  };
+
+  /* ----------------------------- ACTIVE LINK ------------------------------ */
   const isActive = (to) =>
     to === "/" ? location.pathname === "/" : location.pathname.startsWith(to);
 
-  // Enhanced search with loading tied to navigation
+  /* ----------------------------- SEARCH ------------------------------ */
   const [query, setQuery] = useState("");
   const [searchLoading, setSearchLoading] = useState(false);
 
@@ -115,10 +112,13 @@ export default function NavBar() {
     </Link>
   );
 
+  // Chat badge - call hook unconditionally at component level
+  const chatBadgeCount = useChatBadge();
+
   return (
     <header className="sticky top-0 z-[9999] w-full border-b border-border/40 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60 shadow-sm">
       <nav className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 lg:px-6">
-        {/* Enhanced Brand */}
+        {/* Brand */}
         <Link
           to="/"
           className="flex items-center gap-3 shrink-0 hover:scale-105 transition-transform duration-200"
@@ -131,7 +131,7 @@ export default function NavBar() {
             />
             <div className="absolute -inset-1 bg-gradient-to-r from-[#3C81D2] to-[#8B5CF6] rounded-full opacity-20 blur-sm"></div>
           </div>
-          <div className="hidden sm:block">
+          <div>
             <h1 className="text-xl font-bold bg-gradient-to-r from-[#3C81D2] to-[#8B5CF6] bg-clip-text text-transparent">
               DevNexus
             </h1>
@@ -139,7 +139,7 @@ export default function NavBar() {
           </div>
         </Link>
 
-        {/* Enhanced Desktop Navigation */}
+        {/* Desktop Nav */}
         <div className="hidden lg:flex items-center gap-2 ml-4">
           <NavLink to="/">
             <Home className="h-4 w-4" />
@@ -164,7 +164,7 @@ export default function NavBar() {
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Enhanced Search */}
+        {/* Search */}
         <form onSubmit={onSearch} className="hidden md:flex items-center relative">
           <div className="relative group">
             <SearchIcon
@@ -199,9 +199,9 @@ export default function NavBar() {
           </div>
         </form>
 
-        {/* Enhanced Quick Actions */}
+        {/* Quick Actions */}
         <div className="flex items-center gap-2">
-          {/* Create Post Button */}
+          {/* Create Post */}
           {user && (
             <Button
               variant="outline"
@@ -230,19 +230,16 @@ export default function NavBar() {
             </Button>
           )}
 
-          {/* Enhanced Notifications */}
+          {/* Notifications */}
           {user && <EnhancedNotiBell />}
 
-          {/* Enhanced Theme Toggle */}
+          {/* Theme Toggle */}
           <ThemeToggle theme={theme} onThemeChange={toggleTheme} />
 
           {/* User Menu or Auth */}
           {user ? <EnhancedUserMenu user={user} onLogout={logout} /> : <AuthButtons />}
         </div>
       </nav>
-
-      {/* Enhanced Mobile Bottom Navigation */}
-      <MobileNavTabs />
     </header>
   );
 }
@@ -289,7 +286,6 @@ function ThemeToggle({ theme, onThemeChange }) {
         >
           {theme === "dark" && <Moon className="h-4 w-4" />}
           {theme === "light" && <Sun className="h-4 w-4" />}
-          {/* {theme === "system" && <Monitor className="h-4 w-4" />} */}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-40 rounded-xl z-[9999]">
@@ -301,10 +297,6 @@ function ThemeToggle({ theme, onThemeChange }) {
           <Moon className="h-4 w-4" />
           Dark
         </DropdownMenuItem>
-        {/* <DropdownMenuItem onClick={() => onThemeChange("system")} className="gap-2">
-          <Monitor className="h-4 w-4" />
-          System
-        </DropdownMenuItem> */}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -498,49 +490,24 @@ function NotificationItem({ notification, onClick }) {
   );
 }
 
-function MobileNavTabs() {
-  const { user } = useAuth();
-  const location = useLocation();
-
-  if (!user) return null;
-
-  const tabs = [
-    { path: "/", label: "Feed" },
-    { path: "/chats", label: "Chats" },
-    // { path: "/explore", label: "Explore" },
-    { path: `/u/${user.username}`, label: "Profile" },
-  ];
-
-  return (
-    <div className="lg:hidden border-t border-border/40 bg-background/90 backdrop-blur-xl">
-      <div className="flex items-center justify-around px-2 py-1">
-        {tabs.map(({ path, label }) => {
-          const active = path === "/" ? location.pathname === "/" : location.pathname.startsWith(path);
-          return (
-            <Link
-              key={path}
-              to={path}
-              className={cn(
-                "flex-1 text-center py-2 px-3 text-xs font-medium rounded-lg transition-colors",
-                active
-                  ? "text-primary bg-primary/10"
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent/30"
-              )}
-            >
-              {label}
-            </Link>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// Helper hook for chat badge count (memoized)
 function useChatBadge() {
   const { conversations } = useChat();
   return useMemo(
     () => (conversations?.reduce((sum, conv) => sum + (conv.unread || 0), 0) || 0),
     [conversations]
   );
+}
+
+/* ----------------------------- THEME HELPERS ------------------------------ */
+
+function applyTheme(mode) {
+  const root = document.documentElement;
+  root.classList.toggle("dark", mode === "dark");
+}
+
+function safeGetLocalTheme() {
+  try { return localStorage.getItem("theme"); } catch { return null; }
+}
+function safeSetLocalTheme(t) {
+  try { localStorage.setItem("theme", t); } catch { }
 }

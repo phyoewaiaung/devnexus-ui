@@ -44,6 +44,9 @@ export const uploadAvatar = (file) => {
   }).then(r => r.data);
 };
 
+export const updateTheme = (theme) =>
+  client.patch('/api/users/me/theme', { theme }).then(r => r.data)
+
 export const uploadCover = (file) => {
   const fd = new FormData();
   fd.append('cover', file);

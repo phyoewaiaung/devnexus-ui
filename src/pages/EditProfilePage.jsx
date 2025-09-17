@@ -193,7 +193,7 @@ export default function EditProfilePage() {
               Update your public info and social links.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          {/* <div className="flex items-center gap-2">
             <Button type="button" variant="outline" onClick={() => nav(-1)} disabled={saving}>
               Cancel
             </Button>
@@ -206,7 +206,7 @@ export default function EditProfilePage() {
                 "Save changes"
               )}
             </Button>
-          </div>
+          </div> */}
         </div>
 
         {err && (
@@ -384,7 +384,7 @@ export default function EditProfilePage() {
         </Card>
 
         {/* Bottom actions for small screens (extra accessible) */}
-        <div className="flex items-center justify-end gap-2 md:hidden">
+        <div className="flex items-center justify-end gap-2">
           <Button type="button" variant="outline" onClick={() => nav(-1)} disabled={saving}>
             Cancel
           </Button>

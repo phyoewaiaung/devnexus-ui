@@ -307,11 +307,21 @@ export default function ConversationPage() {
 /* --------------------- Message list (modern styling) --------------------- */
 
 function MessageList({ items, meId, participants, fmtTime }) {
+    // show a friendly empty state
     if (!items?.length) {
         return (
             <div className="py-8 text-center text-sm text-muted-foreground">Say hi 👋</div>
         );
     }
+
+    // 1) ORDER: oldest → newest (so the last item renders at the bottom)
+    const ordered = useMemo(() => {
+        return [...items].sort((a, b) => {
+            const ta = new Date(a.createdAt || a.timestamp || 0).getTime();
+            const tb = new Date(b.createdAt || b.timestamp || 0).getTime();
+            return ta - tb;
+        });
+    }, [items]);
 
     // Build an index of userId -> user (for avatars/names)
     const userMap = useMemo(() => {
@@ -323,12 +333,12 @@ function MessageList({ items, meId, participants, fmtTime }) {
     }, [participants]);
 
     const rows = [];
-    for (let i = 0; i < items.length; i++) {
-        const curr = items[i];
+    for (let i = 0; i < ordered.length; i++) {
+        const curr = ordered[i];
         if (!curr) continue;
 
-        const prev = items[i - 1];
-        const next = items[i + 1];
+        const prev = ordered[i - 1];
+        const next = ordered[i + 1];
 
         const currTime = curr.createdAt || curr.timestamp;
         const prevTime = prev?.createdAt || prev?.timestamp;
@@ -358,7 +368,7 @@ function MessageList({ items, meId, participants, fmtTime }) {
         rows.push(
             <div key={key} className={`flex ${mine ? "justify-end" : "justify-start"} my-0.5`}>
                 <div className={`flex max-w-[88%] items-end gap-2 ${mine ? "flex-row-reverse" : ""}`}>
-                    {/* avatar only for others, only on the LAST bubble in a group (modern look) */}
+                    {/* avatar only for others, only on the LAST bubble in a group */}
                     {!mine && lastOfGroup ? (
                         <ChatAvatar user={userMap.get(currSenderId)} />
                     ) : (
@@ -391,6 +401,7 @@ function MessageList({ items, meId, participants, fmtTime }) {
 
     return <div className="space-y-0.5">{rows}</div>;
 }
+
 
 function ChatAvatar({ user }) {
     const letter =

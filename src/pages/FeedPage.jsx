@@ -208,10 +208,10 @@ export default function FeedPage() {
     );
   }
 
-  const totals = useMemo(() => ({
-    comments: posts.reduce((acc, p) => acc + (p.commentsCount || p.comments?.length || 0), 0),
-    likes: posts.reduce((acc, p) => acc + (p.likesCount || 0), 0),
-  }), [posts]);
+  // const totals = useMemo(() => ({
+  //   comments: posts.reduce((acc, p) => acc + (p.commentsCount || p.comments?.length || 0), 0),
+  //   likes: posts.reduce((acc, p) => acc + (p.likesCount || 0), 0),
+  // }), [posts]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -274,7 +274,7 @@ export default function FeedPage() {
         )}
       </div>
 
-      {user && posts.length > 5 && (
+      {/* {user && posts.length > 5 && (
         <Card className="fixed bottom-4 right-4 hidden lg:block p-3 shadow-lg bg-white/90 backdrop-blur-sm">
           <div className="flex items-center gap-4 text-sm text-foreground">
             <div className="flex items-center gap-1"><MessageCircle className="w-4 h-4" aria-hidden /><span>{totals.comments}</span></div>
@@ -282,7 +282,7 @@ export default function FeedPage() {
             <div className="flex items-center gap-1"><Share2 className="w-4 h-4" aria-hidden /><span>{posts.length}</span></div>
           </div>
         </Card>
-      )}
+      )} */}
 
       {showBackToTop && (
         <Button

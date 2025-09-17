@@ -28,3 +28,13 @@
 </body>
 
 </html>
+
+<script>
+  (function () {
+    try {
+      var t = localStorage.getItem('theme') || 'light';
+      if (t === 'dark') document.documentElement.classList.add('dark');
+      else document.documentElement.classList.remove('dark');
+    } catch { }
+  })();
+</script>

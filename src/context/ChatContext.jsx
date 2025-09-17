@@ -142,10 +142,10 @@ export function ChatProvider({ children }) {
             setPresence(newMap);
         });
 
-        socket.on("message:read", ({ conversationId }) => {
-            // Optional: could mark messages as read locally if your server pushes per-message read state
-            console.log("[chat-socket] messages read in:", conversationId);
-        });
+        // socket.on("message:read", ({ conversationId }) => {
+        //     // Optional: could mark messages as read locally if your server pushes per-message read state
+        //     console.log("[chat-socket] messages read in:", conversationId);
+        // });
 
         return () => {
             socket.disconnect();
