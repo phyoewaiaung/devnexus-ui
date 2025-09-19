@@ -26,8 +26,8 @@ import { useEffect } from "react";
 import { setupInterceptors } from "./api/client";
 import PostDetail from "./pages/PostDetail";
 import ChatsPage from "./pages/ChatsPage";
-import ConversationPage from "./pages/ConversationPage";
 import { useNotifications } from "./providers/NotificationsProvider";
+import ConversationPage from "./pages/ConversationPage";
 
 export default function App() {
   const navigate = useNavigate();
