@@ -1,4 +1,3 @@
-// src/components/NavBar.jsx
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
@@ -29,7 +28,7 @@ import { useNotifications } from "@/providers/NotificationsProvider";
 /* ------------------------------------------------------ */
 
 export default function NavBar() {
-  const { user, logout, accessToken } = useAuth(); // accessToken optional; falls back to cookies if you use them
+  const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -37,7 +36,6 @@ export default function NavBar() {
   const { canInstall, promptInstall, isStandalone } = useInstallPrompt();
 
   /* ----------------------------- THEME ------------------------------ */
-  // First render: prefer localStorage, then user.theme, else 'light'
   const [theme, setTheme] = useState(() => {
     const ls = safeGetLocalTheme();
     if (ls === "light" || ls === "dark") return ls;
@@ -51,20 +49,14 @@ export default function NavBar() {
   }, [theme]);
 
   useEffect(() => {
-    if (user?.theme && user.theme !== theme) {
-      setTheme(user.theme);
-    }
-  }, [user?.theme]);
+    if (user?.theme && user.theme !== theme) setTheme(user.theme);
+  }, [user?.theme]); // eslint-disable-line
 
   const toggleTheme = async (newTheme) => {
     if (newTheme !== "light" && newTheme !== "dark") return;
     setTheme(newTheme);
     if (user) {
-      try {
-        const res = await updateTheme(newTheme);
-      } catch (e) {
-        console.log(e)
-      }
+      try { await updateTheme(newTheme); } catch { }
     }
   };
 
@@ -84,7 +76,6 @@ export default function NavBar() {
     navigate(`/search?q=${encodeURIComponent(q)}`);
   };
 
-  // Reset loading whenever the route changes
   useEffect(() => {
     if (searchLoading) setSearchLoading(false);
   }, [location.key, searchLoading]);
@@ -369,6 +360,8 @@ function EnhancedUserMenu({ user, onLogout }) {
   );
 }
 
+/* ----------------------- Notifications (updated) ---------------------- */
+
 function EnhancedNotiBell() {
   const { items, unread, markAllRead } = useNotifications();
   const navigate = useNavigate();
@@ -381,8 +374,19 @@ function EnhancedNotiBell() {
     [items]
   );
 
-  const openPost = (postId) => {
-    if (postId) navigate(`/p/${postId}`);
+  const handleOpen = (n) => {
+    // Shapes we might receive
+    const postId = n.postId || n.post?._id || n.post || null;
+    const convoId = n.conversationId || n.conversation?._id || n.conversation || null;
+
+    if (n.type?.startsWith('chat:') && convoId) {
+      navigate(`/chats/${convoId}`);
+      return;
+    }
+    if ((n.type === 'like' || n.type === 'comment') && postId) {
+      navigate(`/p/${postId}`);
+      return;
+    }
   };
 
   return (
@@ -429,7 +433,7 @@ function EnhancedNotiBell() {
               <NotificationItem
                 key={notification._id || notification.id}
                 notification={notification}
-                onClick={() => openPost(notification.postId || notification.post?._id)}
+                onOpen={() => handleOpen(notification)}
               />
             ))
           )}
@@ -447,26 +451,48 @@ function EnhancedNotiBell() {
   );
 }
 
-function NotificationItem({ notification, onClick }) {
+function NotificationItem({ notification, onOpen }) {
   const actor = notification.actor || {};
+  const initials = (actor.username || actor.name || "U").slice(0, 2).toUpperCase();
+
   const whenStr = (() => {
-    try {
-      return new Date(notification.createdAt).toLocaleString();
-    } catch {
-      return "";
-    }
+    try { return new Date(notification.createdAt).toLocaleString(); }
+    catch { return ""; }
   })();
-  const initials = (actor.username || "U").slice(0, 2).toUpperCase();
+
+  const t = notification.type;
+  const kind = notification.meta?.kind;  // 'dm' | 'group'
+  const title = notification.meta?.title; // group title
+  const preview = notification.meta?.preview;
+
+  let actionText = "";
+  if (t === "like") {
+    actionText = "liked your post";
+  } else if (t === "comment") {
+    actionText = "commented on your post";
+  } else if (t === "chat:invite") {
+    actionText = `invited you to join${title ? ` “${title}”` : ""}`;
+  } else if (t === "chat:accept") {
+    actionText = `accepted your invite${title ? ` to “${title}”` : ""}`;
+  } else if (t === "chat:decline") {
+    actionText = `declined your invite${title ? ` to “${title}”` : ""}`;
+  } else if (t === "chat:message") {
+    if (kind === "group" && title) {
+      actionText = `messaged in “${title}”`;
+    } else {
+      actionText = "sent you a message";
+    }
+  } else {
+    actionText = "sent a notification";
+  }
 
   return (
     <DropdownMenuItem
       className={cn(
         "flex items-start gap-3 p-4 cursor-pointer border-l-2 transition-colors",
-        !notification.read
-          ? "border-l-primary bg-primary/5"
-          : "border-l-transparent"
+        !notification.read ? "border-l-primary bg-primary/5" : "border-l-transparent"
       )}
-      onClick={onClick}
+      onClick={onOpen}
     >
       <Avatar className="h-8 w-8 shrink-0">
         <AvatarImage src={actor.avatarUrl} />
@@ -475,17 +501,19 @@ function NotificationItem({ notification, onClick }) {
 
       <div className="flex-1 min-w-0">
         <p className="text-sm leading-tight">
-          <span className="font-medium">@{actor.username || "user"}</span>
-          <span className="text-muted-foreground ml-1">
-            {notification.type === "like" ? "liked your post" : "commented on your post"}
-          </span>
+          <span className="font-medium">@{actor.username || "user"}</span>{" "}
+          <span className="text-muted-foreground">{actionText}</span>
         </p>
+
+        {t === "chat:message" && preview && (
+          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{preview}</p>
+        )}
+
         <p className="text-xs text-muted-foreground mt-1">{whenStr}</p>
       </div>
     </DropdownMenuItem>
   );
 }
-
 
 /* ----------------------------- THEME HELPERS ------------------------------ */
 

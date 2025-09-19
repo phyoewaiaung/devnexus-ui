@@ -1,6 +1,4 @@
-// Modern layout: sticky header, scrolling message pane, fixed composer.
-// Group-aware UI (member sheet + name display), date separators, typing indicator.
-
+// src/pages/ConversationPage.jsx
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
@@ -17,38 +15,27 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import {
-    ArrowLeft, Send, Paperclip, Users2, UserPlus, Loader2, Search, Circle
-} from 'lucide-react';
+import { ArrowLeft, Send, Paperclip, Users2, UserPlus, Loader2, Search as SearchIcon } from 'lucide-react';
 
-// helpers
 const nameOf = (u) => u?.name || u?.username || 'Unknown';
-const initials = (u) =>
-    (nameOf(u).match(/\b\w/g) || []).slice(0, 2).join('').toUpperCase();
+const initials = (u) => (nameOf(u).match(/\b\w/g) || []).slice(0, 2).join('').toUpperCase();
 
 const isSameDay = (a, b) => {
     const da = new Date(a), db = new Date(b);
-    return da.getFullYear() === db.getFullYear() &&
-        da.getMonth() === db.getMonth() &&
-        da.getDate() === db.getDate();
+    return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
 };
 const dayLabel = (iso) => {
     const d = new Date(iso);
     const today = new Date();
-    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+    const y = new Date(today); y.setDate(today.getDate() - 1);
     if (isSameDay(d, today)) return 'Today';
-    if (isSameDay(d, yesterday)) return 'Yesterday';
+    if (isSameDay(d, y)) return 'Yesterday';
     return d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
 };
-const prettyTime = (iso) => {
-    try { return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
-    catch { return ''; }
-};
+const prettyTime = (iso) => { try { return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
 
 function PresenceDot({ online }) {
-    return (
-        <span className={`inline-flex h-2.5 w-2.5 rounded-full ${online ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`} />
-    );
+    return <span className={`inline-flex h-2.5 w-2.5 rounded-full ${online ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`} />;
 }
 
 function Bubble({ mine, msg, author, showAuthor }) {
@@ -56,11 +43,8 @@ function Bubble({ mine, msg, author, showAuthor }) {
         <div className={`flex ${mine ? 'justify-end' : 'justify-start'} px-2`}>
             {!mine && (
                 <Avatar className="h-7 w-7 mr-2 mt-5 shrink-0">
-                    {author?.avatarUrl ? (
-                        <AvatarImage src={author.avatarUrl} alt={author?.name || author?.username || 'User'} />
-                    ) : (
-                        <AvatarFallback>{(author?.name || author?.username || '?').slice(0, 2).toUpperCase()}</AvatarFallback>
-                    )}
+                    {author?.avatarUrl ? <AvatarImage src={author.avatarUrl} alt={author?.name || author?.username || 'User'} /> :
+                        <AvatarFallback>{(author?.name || author?.username || '?').slice(0, 2).toUpperCase()}</AvatarFallback>}
                 </Avatar>
             )}
             <div className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm shadow ${mine ? 'bg-[#3C81D2] text-white' : 'bg-muted'}`}>
@@ -106,20 +90,16 @@ export default function ConversationPage() {
 
     const typingTimer = useRef(null);
     const bottomRef = useRef(null);
-    const scrollerRef = useRef(null);
 
     const messages = useMemo(() => (messagesMap?.get ? messagesMap.get(String(id)) || [] : []), [messagesMap, id]);
-
     const participants = conversation?.participants || [];
-    const otherUsers = useMemo(() =>
-        participants.filter((p) => String(p.user?._id || p.user) !== String(user?._id)).map((p) => p.user),
+    const otherUsers = useMemo(
+        () => participants.filter((p) => String(p.user?._id || p.user) !== String(user?._id)).map((p) => p.user),
         [participants, user?._id]
     );
 
     const isGroup = !!conversation?.isGroup;
-    const title = isGroup
-        ? (conversation?.title || 'Group')
-        : (otherUsers[0]?.name || otherUsers[0]?.username || 'Conversation');
+    const title = isGroup ? (conversation?.title || 'Group') : (otherUsers[0]?.name || otherUsers[0]?.username || 'Conversation');
 
     const fetchConversation = useCallback(async () => {
         try {
@@ -138,30 +118,30 @@ export default function ConversationPage() {
     const loadInitial = useCallback(async () => {
         try {
             const { messages: batch, nextCursor: cursor } = await ChatsAPI.listMessages(id, { limit: 30 });
+            // If invitee (403), listMessages throws — we catch below
             setMessages?.((prev) => new Map(prev).set(String(id), (batch || []).reverse()));
             setNextCursor(cursor || null);
             if (batch?.length) markRead?.(id);
         } catch (e) {
-            toast.error(e?.message || 'Failed to load messages');
+            // Invitee will get 403 here — show banner via `invited` state
+            // (fetchConversation already set invited)
         }
     }, [id, setMessages, markRead]);
 
     useEffect(() => { fetchConversation(); }, [fetchConversation]);
     useEffect(() => { loadInitial(); }, [loadInitial]);
 
-    // autoscroll when new messages arrive
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }, [messages.length]);
 
-    // typing indicator
     const onTextChange = (v) => {
         setText(v);
         try {
             if (typingTimer.current) clearTimeout(typingTimer.current);
             indicateTyping?.(id, true);
             typingTimer.current = setTimeout(() => indicateTyping?.(id, false), 1500);
-        } catch { /* noop */ }
+        } catch { }
     };
 
     const sendNow = async () => {
@@ -179,6 +159,7 @@ export default function ConversationPage() {
         try {
             await ChatsAPI.acceptInvite(id);
             await fetchConversation();
+            await loadInitial();
             toast.success('Joined the room');
         } catch (e) {
             toast.error(e?.message || 'Failed to accept');
@@ -195,9 +176,8 @@ export default function ConversationPage() {
         }
     };
 
-    // Load older messages
     const loadOlder = async () => {
-        if (!nextCursor || loadingMore) return;
+        if (!nextCursor || loadingMore || invited) return;
         try {
             setLoadingMore(true);
             const { messages: batch, nextCursor: cursor } = await ChatsAPI.listMessages(id, { cursor: nextCursor, limit: 30 });
@@ -214,10 +194,7 @@ export default function ConversationPage() {
     };
 
     // Invite search (excludes existing members)
-    const memberIds = useMemo(
-        () => new Set((participants || []).map((p) => String(p.user?._id || p.user))),
-        [participants]
-    );
+    const memberIds = useMemo(() => new Set((participants || []).map((p) => String(p.user?._id || p.user))), [participants]);
 
     useEffect(() => {
         const ctrl = new AbortController();
@@ -228,7 +205,7 @@ export default function ConversationPage() {
                 const { users } = await searchUsers(inviteQuery, { signal: ctrl.signal });
                 const filtered = (users || []).filter((u) => !memberIds.has(String(u._id)));
                 setInviteResults(filtered);
-            } catch { /* ignore */ }
+            } catch { }
             finally { setInviteSearching(false); }
         }, 250);
         return () => { clearTimeout(t); ctrl.abort(); };
@@ -254,7 +231,7 @@ export default function ConversationPage() {
         }
     };
 
-    // group messages with date separators & author grouping
+    // grouped messages
     const listWithDividers = useMemo(() => {
         const out = [];
         let prev = null;
@@ -285,7 +262,6 @@ export default function ConversationPage() {
                 <div className="max-w-3xl mx-auto px-3 sm:px-4 h-14 flex items-center gap-3">
                     <Link to="/chats"><Button variant="ghost" size="icon"><ArrowLeft className="h-5 w-5" /></Button></Link>
 
-                    {/* Title block */}
                     <div className="flex items-center gap-3">
                         <Avatar className="h-9 w-9">
                             {isGroup
@@ -312,7 +288,6 @@ export default function ConversationPage() {
                         </div>
                     </div>
 
-                    {/* Actions */}
                     <div className="ml-auto flex items-center gap-2">
                         {isGroup && !invited && (
                             <>
@@ -324,48 +299,57 @@ export default function ConversationPage() {
                         )}
                         {invited && (
                             <div className="flex items-center gap-2">
-                                <Button size="sm" variant="secondary" onClick={async () => { await ChatsAPI.acceptInvite(id); await fetchConversation(); toast.success('Joined the room'); }}>Accept</Button>
-                                <Button size="sm" variant="ghost" onClick={async () => { await ChatsAPI.declineInvite(id); toast.success('Invitation declined'); navigate('/chats'); }} className="text-destructive">Decline</Button>
+                                <Button size="sm" variant="secondary" onClick={accept}>Accept</Button>
+                                <Button size="sm" variant="ghost" onClick={decline} className="text-destructive">Decline</Button>
                             </div>
                         )}
                     </div>
                 </div>
             </div>
 
-            {/* Message pane (only this scrolls) */}
+            {/* Message pane */}
             <div className="flex-1">
                 <Card className="mx-auto max-w-3xl rounded-none sm:rounded-xl sm:mt-3 sm:mb-0 h-full">
-                    <div
-                        ref={scrollerRef}
-                        className="h-[calc(100svh-56px-92px)] sm:h-[calc(100svh-56px-112px)] overflow-y-auto p-2 sm:p-4"
-                    >
-                        {nextCursor && (
-                            <div className="text-center mb-1">
-                                <Button size="sm" variant="ghost" onClick={loadOlder} disabled={loadingMore}>
-                                    {loadingMore ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Load earlier messages'}
-                                </Button>
+                    <div className="h-[calc(100svh-56px-92px)] sm:h-[calc(100svh-56px-112px)] overflow-y-auto p-2 sm:p-4">
+                        {invited && (
+                            <div className="text-center mb-3 text-sm text-muted-foreground">
+                                You’ve been invited to this room. Accept to view and send messages.
                             </div>
                         )}
 
-                        {listWithDividers.map((row) =>
-                            row._type === 'divider' ? (
-                                <DateDivider key={row._id} when={row.when} />
-                            ) : (
-                                <div key={row.msg._id || row.msg.clientMsgId} className="py-1">
-                                    <Bubble mine={row.mine} msg={row.msg} author={row.mine ? user : otherUsers.find(o => String(o._id || o) === String(row.msg.sender?._id || row.msg.sender))} showAuthor={row.showAuthor} />
-                                </div>
-                            )
+                        {!invited && (
+                            <>
+                                {nextCursor && (
+                                    <div className="text-center mb-1">
+                                        <Button size="sm" variant="ghost" onClick={loadOlder} disabled={loadingMore}>
+                                            {loadingMore ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Load earlier messages'}
+                                        </Button>
+                                    </div>
+                                )}
+
+                                {listWithDividers.map((row) =>
+                                    row._type === 'divider' ? (
+                                        <DateDivider key={row._id} when={row.when} />
+                                    ) : (
+                                        <div key={row.msg._id || row.msg.clientMsgId} className="py-1">
+                                            <Bubble
+                                                mine={row.mine}
+                                                msg={row.msg}
+                                                author={row.mine ? user : otherUsers.find(o => String(o._id || o) === String(row.msg.sender?._id || row.msg.sender))}
+                                                showAuthor={row.showAuthor}
+                                            />
+                                        </div>
+                                    )
+                                )}
+                            </>
                         )}
 
-                        {isSomeoneTyping && (
-                            <div className="text-xs text-muted-foreground px-2 py-2">Typing…</div>
-                        )}
                         <div ref={bottomRef} />
                     </div>
                 </Card>
             </div>
 
-            {/* Composer (fixed) */}
+            {/* Composer */}
             <div className="sticky bottom-0 z-10 bg-background border-t">
                 <div className="max-w-3xl mx-auto px-3 sm:px-4 py-2">
                     <Card className="p-2 sm:p-3">
@@ -389,7 +373,7 @@ export default function ConversationPage() {
                 </div>
             </div>
 
-            {/* Members sheet (group only) */}
+            {/* Members sheet */}
             <Sheet open={membersOpen} onOpenChange={setMembersOpen}>
                 <SheetContent side="right" className="w-full sm:max-w-md">
                     <SheetHeader>
@@ -421,7 +405,7 @@ export default function ConversationPage() {
                 </SheetContent>
             </Sheet>
 
-            {/* Invite dialog (group only) */}
+            {/* Invite dialog */}
             <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
                 <DialogContent className="sm:max-w-lg">
                     <DialogHeader>
@@ -430,7 +414,7 @@ export default function ConversationPage() {
 
                     <div className="space-y-3">
                         <div className="relative">
-                            <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                            <SearchIcon className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                             <Input value={inviteQuery} onChange={(e) => setInviteQuery(e.target.value)} placeholder="Search people…" className="pl-9" />
                         </div>
                         <div className="max-h-64 overflow-auto rounded-lg border">

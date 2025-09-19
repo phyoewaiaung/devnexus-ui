@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+// src/pages/ChatsPage.jsx
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useChat } from '@/providers/ChatProvider';
 import { ChatsAPI } from '@/api/chat';
 import { searchUsers } from '@/api/users';
+import { useNotifications } from '@/providers/NotificationsProvider';
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -16,13 +18,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { toast } from 'sonner';
 import {
-    MessageSquare, Users, UserPlus, Search, AlertCircle, PlusCircle, ChevronRight,
+    MessageSquare, Users, UserPlus, Search as SearchIcon, AlertCircle, PlusCircle, ChevronRight,
     Check, X, Loader2, UserCheck, LogIn, MessagesSquare, MessageCircle
 } from 'lucide-react';
 
 const nameOf = (u) => u?.name || u?.username || 'Unknown';
 const initials = (u) => (nameOf(u).match(/\b\w/g) || []).slice(0, 2).join('').toUpperCase();
-
 const lastMessagePreview = (m) => {
     if (!m) return '';
     if (typeof m === 'string') return m;
@@ -31,12 +32,10 @@ const lastMessagePreview = (m) => {
 };
 
 function PresenceDot({ online }) {
-    return (
-        <span className={`inline-flex h-2.5 w-2.5 rounded-full ${online ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`} />
-    );
+    return <span className={`inline-flex h-2.5 w-2.5 rounded-full ${online ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`} />;
 }
 
-function ConversationItem({ convo, meId, presenceMap }) {
+function ConversationItem({ convo, meId, isOnline }) {
     const other = useMemo(() => {
         const others = (convo.participants || [])
             .map((p) => p.user)
@@ -44,7 +43,11 @@ function ConversationItem({ convo, meId, presenceMap }) {
         return convo.isGroup ? null : others[0];
     }, [convo, meId]);
 
-    const online = other ? !!presenceMap?.get?.(String(other._id || other)) : false;
+    const online = useMemo(() => {
+        const otherId = other?._id || other;
+        return typeof isOnline === 'function' && otherId ? !!isOnline(String(otherId)) : false;
+    }, [isOnline, other]);
+
     const title = convo.isGroup ? (convo.title || 'Group') : nameOf(other);
 
     return (
@@ -116,11 +119,12 @@ function UserRow({ user, selected, onToggle, onDM }) {
 
 export default function ChatsPage() {
     const { user } = useAuth();
-    const { presence = new Map() } = useChat() || {};
+    useChat(); // keep socket wiring alive if needed elsewhere
     const navigate = useNavigate();
+    const { isOnline, items: notifItems } = useNotifications();
 
     const [tab, setTab] = useState('messages');
-    const [filter, setFilter] = useState('all'); // 'all' | 'dm' | 'rooms'
+    const [filter, setFilter] = useState('all');
     const [query, setQuery] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -133,6 +137,8 @@ export default function ChatsPage() {
     const [results, setResults] = useState([]);
     const [selected, setSelected] = useState([]);
     const [roomTitle, setRoomTitle] = useState('');
+    const [inviteMessage, setInviteMessage] = useState('');
+    const [initialDMMessage, setInitialDMMessage] = useState('');
 
     const load = useCallback(async () => {
         try {
@@ -152,6 +158,21 @@ export default function ChatsPage() {
     }, [user?._id]);
 
     useEffect(() => { load(); }, [load]);
+
+    // 🔔 Immediately reflect invites on new notification
+    const lastInviteIdRef = useRef(null);
+    useEffect(() => {
+        if (!Array.isArray(notifItems)) return;
+        // find the latest chat:invite
+        const latestInvite = notifItems.find(n => n.type === 'chat:invite');
+        if (!latestInvite) return;
+        const candidate = String(latestInvite.conversation || '');
+        if (candidate && lastInviteIdRef.current !== candidate) {
+            lastInviteIdRef.current = candidate;
+            // Re-query conversations so Invites tab updates instantly
+            load();
+        }
+    }, [notifItems, load]);
 
     // Debounced user search
     useEffect(() => {
@@ -180,7 +201,8 @@ export default function ChatsPage() {
             const existing = (conversations || []).find((c) => !c.isGroup &&
                 (c.participants || []).some((p) => String(p.user?._id || p.user) === String(u._id)));
             if (existing) return navigate(`/chats/${existing._id}`);
-            const convo = await ChatsAPI.startDM(u._id); // server dedupes 1:1
+
+            const convo = await ChatsAPI.startDM(u._id, { initialMessage: initialDMMessage?.trim() || '' });
             await load();
             navigate(`/chats/${convo._id}`);
         } catch (e) {
@@ -191,16 +213,29 @@ export default function ChatsPage() {
     const startChat = async () => {
         try {
             if (selected.length === 0) return;
-            if (selected.length === 1) return openDM(selected[0]);
+
+            if (selected.length === 1) {
+                await openDM(selected[0]);
+                setInitialDMMessage('');
+                setOpenNew(false);
+                return;
+            }
+
+            // Create empty room (creator only)
             const conversation = await ChatsAPI.createConversation({
-                participantIds: selected.map((u) => u._id),
                 title: roomTitle.trim() || 'New Room',
                 isGroup: true,
+                participantIds: [], // make sure no auto-join
             });
-            toast.success('Room created. Invites sent.');
+
+            // Send invites with optional message
+            await ChatsAPI.invite(conversation._id, selected.map(u => u._id), inviteMessage?.trim() || undefined);
+
+            toast.success('Room created. Invites sent — users must accept to join.');
             setOpenNew(false);
             setSelected([]);
             setRoomTitle('');
+            setInviteMessage('');
             await load();
             navigate(`/chats/${conversation._id}`);
         } catch (e) {
@@ -234,6 +269,25 @@ export default function ChatsPage() {
         return conversations;
     }, [conversations, filter]);
 
+    const SelectedChips = () => (
+        selected.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-2">
+                {selected.map((u) => (
+                    <span key={u._id} className="inline-flex items-center gap-2 rounded-full bg-accent px-3 py-1 text-sm">
+                        {nameOf(u)}
+                        <button
+                            className="text-muted-foreground hover:text-foreground"
+                            onClick={() => setSelected((prev) => prev.filter((x) => String(x._id) !== String(u._id)))}
+                            aria-label={`Remove ${nameOf(u)}`}
+                        >
+                            <X className="h-3.5 w-3.5" />
+                        </button>
+                    </span>
+                ))}
+            </div>
+        )
+    );
+
     return (
         <div className="min-h-screen bg-background">
             <div className="border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -249,9 +303,10 @@ export default function ChatsPage() {
 
                 <div className="max-w-3xl mx-auto px-3 sm:px-4 pb-3">
                     <div className="relative">
-                        <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                        <SearchIcon className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                         <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search people…" className="pl-9" />
                     </div>
+                    <SelectedChips />
                 </div>
 
                 <div className="max-w-3xl mx-auto px-3 sm:px-4">
@@ -275,7 +330,7 @@ export default function ChatsPage() {
                 {query && (
                     <Card className="p-2">
                         <div className="flex items-center gap-2 px-2 py-1">
-                            <Search className="h-4 w-4" />
+                            <SearchIcon className="h-4 w-4" />
                             <p className="text-sm text-muted-foreground">Search results</p>
                             {searching && <Loader2 className="h-3.5 w-3.5 animate-spin ml-auto" />}
                         </div>
@@ -330,7 +385,7 @@ export default function ChatsPage() {
                             </Card>
                         ) : (
                             filteredConversations.map((c) => (
-                                <ConversationItem key={c._id} convo={c} meId={user?._id} presenceMap={presence} />
+                                <ConversationItem key={c._id} convo={c} meId={user?._id} isOnline={isOnline} />
                             ))
                         )}
                     </div>
@@ -373,21 +428,45 @@ export default function ChatsPage() {
             <Dialog open={openNew} onOpenChange={setOpenNew}>
                 <DialogContent className="sm:max-w-lg">
                     <DialogHeader>
-                        <DialogTitle>{selected.length > 1 ? 'Create room' : 'Start a DM'}</DialogTitle>
+                        <DialogTitle>{selected.length > 1 ? 'Create room & invite' : 'Start a DM'}</DialogTitle>
                     </DialogHeader>
 
-                    <div className="space-y-3">
-                        {selected.length > 1 && (
+                    <div className="space-y-4">
+                        {selected.length > 1 ? (
+                            <>
+                                <div>
+                                    <label className="text-sm font-medium">Room title</label>
+                                    <Input
+                                        value={roomTitle}
+                                        onChange={(e) => setRoomTitle(e.target.value)}
+                                        placeholder="Team sync, Weekend plan…"
+                                        className="mt-2"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium">Invite message (optional)</label>
+                                    <textarea
+                                        value={inviteMessage}
+                                        onChange={(e) => setInviteMessage(e.target.value)}
+                                        placeholder="Say hi or add context…"
+                                        className="mt-2 w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                        rows={3}
+                                    />
+                                </div>
+                            </>
+                        ) : (
                             <div>
-                                <label className="text-sm font-medium">Room title</label>
-                                <Input
-                                    value={roomTitle}
-                                    onChange={(e) => setRoomTitle(e.target.value)}
-                                    placeholder="Team sync, Weekend plan…"
-                                    className="mt-2"
+                                <label className="text-sm font-medium">Initial message (optional)</label>
+                                <textarea
+                                    value={initialDMMessage}
+                                    onChange={(e) => setInitialDMMessage(e.target.value)}
+                                    placeholder="Send a first message…"
+                                    className="mt-2 w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                    rows={3}
                                 />
                             </div>
                         )}
+
                         <div>
                             <label className="text-sm font-medium">Participants</label>
                             <div className="mt-2 max-h-56 overflow-auto rounded-lg border">
@@ -414,7 +493,7 @@ export default function ChatsPage() {
                     <DialogFooter>
                         <Button variant="ghost" onClick={() => setOpenNew(false)}>Cancel</Button>
                         <Button onClick={startChat} disabled={selected.length === 0} className="gap-2">
-                            <PlusCircle className="h-4 w-4" /> {selected.length > 1 ? 'Create room' : 'Start DM'}
+                            <PlusCircle className="h-4 w-4" /> {selected.length > 1 ? 'Create room & send invites' : 'Start DM'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
