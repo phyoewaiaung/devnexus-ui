@@ -5,8 +5,8 @@ import App from './App'
 import { AuthProvider } from './context/AuthContext'
 import './index.css'
 import { registerSW } from 'virtual:pwa-register'
-import { NotificationsProvider } from './context/NotificationsContext'
 import { ChatProvider } from './context/ChatContext'
+import { NotificationsProvider } from './providers/NotificationsProvider'
 registerSW({ immediate: true })
 
 ReactDOM.createRoot(document.getElementById('root')).render(

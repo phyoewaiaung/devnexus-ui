@@ -21,14 +21,13 @@ import { MessageSquare } from "lucide-react";
 
 // icons
 import { Home, TrendingUp, Plus, User as UserIcon, Bell } from "lucide-react";
-import { useNotifications } from "@/context/NotificationsContext";
 import { Toaster } from "sonner";
 import { useEffect } from "react";
 import { setupInterceptors } from "./api/client";
 import PostDetail from "./pages/PostDetail";
 import ChatsPage from "./pages/ChatsPage";
 import ConversationPage from "./pages/ConversationPage";
-import { useChat } from "./context/ChatContext";
+import { useNotifications } from "./providers/NotificationsProvider";
 
 export default function App() {
   const navigate = useNavigate();
@@ -143,13 +142,12 @@ function MobileBottomNav() {
   const { user } = useAuth();
   const location = useLocation();
   const { unread } = useNotifications();
-  const { conversations } = useChat();
 
-  const chatUnread = conversations.reduce((a, c) => a + (c.unread || 0), 0);
+  // const chatUnread = conversations.reduce((a, c) => a + (c.unread || 0), 0);
 
   const navItems = [
     { to: "/", icon: Home, label: "Home" },
-    { to: "/chats", icon: MessageSquare, label: "Chats", badge: chatUnread },
+    { to: "/chats", icon: MessageSquare, label: "Chats", badge: 0 },
     { to: "/post", icon: Plus, label: "Post" },
     { to: "/noti", icon: Bell, label: "Noti", badge: unread },
     { to: user ? `/u/${user.username}` : "/login", icon: UserIcon, label: "Profile" },

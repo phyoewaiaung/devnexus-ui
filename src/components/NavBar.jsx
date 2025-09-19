@@ -2,8 +2,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { useNotifications } from "@/context/NotificationsContext";
-import { useChat } from "@/context/ChatContext";
 import { useInstallPrompt } from "@/hooks/useInstallPrompt";
 
 // shadcn/ui
@@ -26,6 +24,7 @@ import { cn } from "@/lib/utils";
 // robust asset import (works in dev & prod)
 import logoUrl from "@/assets/transparent.png";
 import { updateTheme } from "@/api/users";
+import { useNotifications } from "@/providers/NotificationsProvider";
 
 /* ------------------------------------------------------ */
 
@@ -112,9 +111,6 @@ export default function NavBar() {
     </Link>
   );
 
-  // Chat badge - call hook unconditionally at component level
-  const chatBadgeCount = useChatBadge();
-
   return (
     <header className="sticky top-0 z-[9999] w-full border-b border-border/40 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60 shadow-sm">
       <nav className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 lg:px-6">
@@ -148,7 +144,7 @@ export default function NavBar() {
 
           {user && (
             <>
-              <NavLink to="/chats" badge={chatBadgeCount ? chatBadgeCount : null}>
+              <NavLink to="/chats" badge={null}>
                 <MessageSquare className="h-4 w-4" />
                 <span>Chats</span>
               </NavLink>
@@ -490,13 +486,6 @@ function NotificationItem({ notification, onClick }) {
   );
 }
 
-function useChatBadge() {
-  const { conversations } = useChat();
-  return useMemo(
-    () => (conversations?.reduce((sum, conv) => sum + (conv.unread || 0), 0) || 0),
-    [conversations]
-  );
-}
 
 /* ----------------------------- THEME HELPERS ------------------------------ */
 

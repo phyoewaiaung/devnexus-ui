@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { io } from "socket.io-client";
 import { useAuth } from "./AuthContext";
 // FIX: correct import
-import { ChatsAPI } from "@/api/chart";
+import { ChatsAPI } from "@/api/chat";
 import { tokenStore } from "@/lib/token";
 
 const ChatCtx = createContext(null);
@@ -27,7 +27,6 @@ export function ChatProvider({ children }) {
                 socketRef.current.disconnect();
                 socketRef.current = null;
             }
-            // clear typing timers
             typingTimers.current.forEach((t) => clearTimeout(t));
             typingTimers.current.clear();
             return;
@@ -58,7 +57,6 @@ export function ChatProvider({ children }) {
         // Connection events
         socket.on("connect", () => {
             console.info("[chat-socket] connected", socket.id);
-            // Join all conversations
             socket.emit("chat:joinAll");
         });
 
@@ -72,12 +70,24 @@ export function ChatProvider({ children }) {
 
         // Chat events
         socket.on("message:new", ({ conversationId, message }) => {
-            // 1) Upsert message into messages map (de-dupe by real id)
             setMessages((prev) => {
                 const arr = prev.get(conversationId) || [];
                 const realId = String(message._id || message.id);
-                const idx = arr.findIndex((m) => String(m._id || m.id) === realId);
 
+                // 1) Prefer clientMsgId replacement (handles ack/broadcast races)
+                if (message.clientMsgId) {
+                    const idxByClient = arr.findIndex(
+                        (m) => m.clientMsgId && m.clientMsgId === message.clientMsgId
+                    );
+                    if (idxByClient >= 0) {
+                        const next = [...arr];
+                        next[idxByClient] = message; // replace optimistic with server copy
+                        return new Map(prev).set(conversationId, next);
+                    }
+                }
+
+                // 2) Fallback: de-dupe by real id
+                const idx = arr.findIndex((m) => String(m._id || m.id) === realId);
                 const next =
                     idx >= 0
                         ? arr.map((m) => (String(m._id || m.id) === realId ? message : m))
@@ -86,11 +96,10 @@ export function ChatProvider({ children }) {
                 return new Map(prev).set(conversationId, next);
             });
 
-            // 2) Update conversation metadata (lastMessage, updatedAt, unread)
+            // Update conversation metadata
             setConversations((prev) => {
                 const senderId = message?.sender?._id || message?.sender;
                 const mine = user?._id && senderId && String(senderId) === String(user._id);
-
                 return prev.map((c) => {
                     if (String(c._id) !== String(conversationId)) return c;
                     return {
@@ -106,15 +115,11 @@ export function ChatProvider({ children }) {
         socket.on("typing", ({ conversationId, userId, isTyping }) => {
             setTyping((prev) => {
                 const tset = new Set(prev.get(conversationId) || []);
-                if (isTyping) {
-                    tset.add(String(userId));
-                } else {
-                    tset.delete(String(userId));
-                }
+                if (isTyping) tset.add(String(userId));
+                else tset.delete(String(userId));
                 return new Map(prev).set(conversationId, tset);
             });
 
-            // Clear typing after timeout
             if (isTyping) {
                 const key = `${conversationId}:${userId}`;
                 clearTimeout(typingTimers.current.get(key));
@@ -142,10 +147,9 @@ export function ChatProvider({ children }) {
             setPresence(newMap);
         });
 
-        // socket.on("message:read", ({ conversationId }) => {
-        //     // Optional: could mark messages as read locally if your server pushes per-message read state
-        //     console.log("[chat-socket] messages read in:", conversationId);
-        // });
+        socket.on("message:read", ({ conversationId }) => {
+            console.log("[chat-socket] messages read in:", conversationId);
+        });
 
         return () => {
             socket.disconnect();
@@ -178,18 +182,18 @@ export function ChatProvider({ children }) {
                     return Promise.reject(new Error("Socket not connected"));
                 }
 
-                const tempId = `tmp-${Date.now()}`;
+                const clientMsgId = `c_${Date.now()}_${Math.random().toString(36).slice(2)}`;
                 const now = new Date().toISOString();
                 const meId = user?._id;
 
-                // Add optimistic message
+                // Optimistic message (use clientMsgId as _id to guarantee replacement)
                 const optimistic = {
-                    _id: tempId,
+                    _id: clientMsgId,
+                    clientMsgId,
                     text,
                     attachments,
                     sender: { _id: meId },
                     createdAt: now,
-                    // Optionally mark as read locally for my own bubble UX
                     read: false,
                 };
 
@@ -198,46 +202,47 @@ export function ChatProvider({ children }) {
                     return new Map(prev).set(conversationId, [...arr, optimistic]);
                 });
 
-                // Also bump lastMessage/updatedAt immediately for snappy UI
                 setConversations((prev) =>
                     prev.map((c) =>
                         String(c._id) === String(conversationId)
-                            ? {
-                                ...c,
-                                lastMessage: optimistic,
-                                updatedAt: now,
-                            }
+                            ? { ...c, lastMessage: optimistic, updatedAt: now }
                             : c
                     )
                 );
 
                 return new Promise((resolve, reject) => {
-                    socket.emit("chat:send", { conversationId, text, attachments }, (ack) => {
-                        if (!ack?.ok) {
-                            // Remove optimistic message on failure
+                    socket.emit(
+                        "chat:send",
+                        { conversationId, text, attachments, clientMsgId },
+                        (ack) => {
+                            if (!ack?.ok) {
+                                // remove optimistic on failure
+                                setMessages((prev) => {
+                                    const arr = (prev.get(conversationId) || []).filter(
+                                        (m) => m._id !== clientMsgId && m.clientMsgId !== clientMsgId
+                                    );
+                                    return new Map(prev).set(conversationId, arr);
+                                });
+                                return reject(new Error(ack?.error || "send failed"));
+                            }
+
+                            const realId = ack.messageId;
+
+                            // convert optimistic client id -> real id (if still present)
                             setMessages((prev) => {
-                                const arr = (prev.get(conversationId) || []).filter((m) => m._id !== tempId);
-                                return new Map(prev).set(conversationId, arr);
+                                const arr = prev.get(conversationId) || [];
+                                const idx = arr.findIndex(
+                                    (m) => m._id === clientMsgId || m.clientMsgId === clientMsgId
+                                );
+                                if (idx < 0) return prev;
+                                const next = [...arr];
+                                next[idx] = { ...next[idx], _id: realId };
+                                return new Map(prev).set(conversationId, next);
                             });
-                            return reject(new Error(ack?.error || "send failed"));
+
+                            resolve(realId);
                         }
-
-                        const realId = ack.messageId;
-
-                        // IMPORTANT: convert optimistic temp id -> real id
-                        // So when server emits `message:new` with the real id,
-                        // our "new message" handler will REPLACE (not duplicate).
-                        setMessages((prev) => {
-                            const arr = prev.get(conversationId) || [];
-                            const idx = arr.findIndex((m) => m._id === tempId);
-                            if (idx < 0) return prev;
-                            const next = [...arr];
-                            next[idx] = { ...next[idx], _id: realId };
-                            return new Map(prev).set(conversationId, next);
-                        });
-
-                        resolve(realId);
-                    });
+                    );
                 });
             },
 
@@ -268,7 +273,6 @@ export function ChatProvider({ children }) {
             loadHistory: async (conversationId) => {
                 try {
                     const { messages: batch } = await ChatsAPI.listMessages(conversationId);
-                    // Assuming API returns newest-first; reverse to oldest->newest for rendering
                     setMessages((prev) =>
                         new Map(prev).set(conversationId, (batch || []).reverse())
                     );

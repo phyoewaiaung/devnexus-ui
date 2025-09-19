@@ -1,4 +1,4 @@
-// src/pages/ProfilePage.jsx — Polished shadcn UI/UX with cover upload + chat-ready
+// src/pages/ProfilePage.jsx — Polished shadcn UI/UX with cover upload + chat-ready + realtime presence
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -43,14 +43,14 @@ import {
 // toast
 import { toast } from 'sonner';
 
-// 🔌 chat
-import { useChat } from '@/context/ChatContext';
+// ✅ use the provider that emits online:users, presence:user:online/offline
+import { useNotifications } from '@/providers/NotificationsProvider';
 
 export default function ProfilePage() {
   const { username } = useParams();
   const { user: me } = useAuth();
+  const { isOnline } = useNotifications(); // ✅ presence from provider
   const navigate = useNavigate();
-  const { startDM, presence } = useChat(); // presence: Map(userId -> bool)
 
   const [profile, setProfile] = useState(null);
   const [posts, setPosts] = useState([]);
@@ -86,6 +86,7 @@ export default function ProfilePage() {
           : null;
 
         setProfile(normalized);
+
         const mapped = (postsResp.posts || []).map((p) => ({
           ...p,
           canDelete: me && p.author?._id === me._id,
@@ -100,7 +101,9 @@ export default function ProfilePage() {
         setLoadingPosts(false);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, [username, me]);
 
   const onFollow = async () => {
@@ -111,9 +114,10 @@ export default function ProfilePage() {
           ...prev,
           followersCount: (prev.followersCount || 0) + 1,
           isFollowing: true,
-          followers: Array.isArray(prev.followers) && me?._id
-            ? Array.from(new Set([...prev.followers, me._id]))
-            : prev.followers,
+          followers:
+            Array.isArray(prev.followers) && me?._id
+              ? Array.from(new Set([...prev.followers, me._id]))
+              : prev.followers,
         }
         : prev
     );
@@ -127,9 +131,10 @@ export default function ProfilePage() {
           ...prev,
           followersCount: Math.max((prev.followersCount || 1) - 1, 0),
           isFollowing: false,
-          followers: Array.isArray(prev.followers) && me?._id
-            ? prev.followers.filter((id) => id !== me._id)
-            : prev.followers,
+          followers:
+            Array.isArray(prev.followers) && me?._id
+              ? prev.followers.filter((id) => id !== me._id)
+              : prev.followers,
         }
         : prev
     );
@@ -139,8 +144,9 @@ export default function ProfilePage() {
   const startChat = async () => {
     try {
       if (!profile?._id) return;
-      const conv = await startDM(profile._id);
-      navigate(`/chats/${conv._id}`);
+      if (isMe) return; // no-op: can't DM yourself (optional)
+      // const conv = await startDM(profile._id);
+      // navigate(`/chats/${conv._id}`);
     } catch (e) {
       toast.error(e.message || 'Failed to start chat');
     }
@@ -164,8 +170,7 @@ export default function ProfilePage() {
     );
   }
 
-  // presence map may use string keys
-  const isOnline = presence?.get?.(String(profile._id)) || false;
+  const online = profile?._id ? isOnline(profile._id) : false;
 
   return (
     <div className="space-y-4">
@@ -178,7 +183,7 @@ export default function ProfilePage() {
           setProfile((p) => (p ? { ...p, coverUrl: urlOrNull } : p))
         }
         onStartChat={startChat}
-        isOnline={isOnline}
+        isOnline={online}
       />
 
       <Tabs defaultValue="posts" className="w-full">
@@ -215,13 +220,23 @@ export default function ProfilePage() {
   );
 }
 
-function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange, onStartChat, isOnline }) {
+function ProfileHeader({
+  profile,
+  isMe,
+  onFollow,
+  onUnfollow,
+  onCoverChange,
+  onStartChat,
+  isOnline,
+}) {
   const [uploading, setUploading] = useState(false);
   const [pending, setPending] = useState(false);
   const [following, setFollowing] = useState(!!profile.isFollowing);
   const fileInputRef = useRef(null);
 
-  useEffect(() => { setFollowing(!!profile.isFollowing); }, [profile.isFollowing]);
+  useEffect(() => {
+    setFollowing(!!profile.isFollowing);
+  }, [profile.isFollowing]);
 
   const pickFile = () => fileInputRef.current?.click();
 
@@ -334,7 +349,6 @@ function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange, onS
                 </AvatarFallback>
               )}
             </Avatar>
-            {/* Presence dot */}
             {!isMe && (
               <span
                 className={`absolute -right-0.5 -bottom-0.5 h-4 w-4 rounded-full border-2 border-background ${isOnline ? 'bg-emerald-500' : 'bg-muted'
@@ -457,7 +471,7 @@ function ProfileHeader({ profile, isMe, onFollow, onUnfollow, onCoverChange, onS
   );
 }
 
-// --- keep existing AboutCard & skeletons (unchanged from your version) ---
+// --- keep existing AboutCard & skeletons (unchanged) ---
 function InfoField({ label, children }) {
   return (
     <div>
@@ -483,7 +497,8 @@ function SocialLink({ href, children }) {
 
 function AboutCard({ profile }) {
   const socials = profile.socialLinks || {};
-  const roles = Array.isArray(profile.roles) && profile.roles.length > 0 ? profile.roles.join(', ') : 'user';
+  const roles =
+    Array.isArray(profile.roles) && profile.roles.length > 0 ? profile.roles.join(', ') : 'user';
 
   return (
     <Card className="p-6">
@@ -507,7 +522,9 @@ function AboutCard({ profile }) {
               >
                 {socials.website}
               </a>
-            ) : ('-')}
+            ) : (
+              '-'
+            )}
           </InfoField>
 
           <div>

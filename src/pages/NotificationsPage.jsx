@@ -1,7 +1,6 @@
 // src/pages/NotificationsPage.jsx
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { useNotifications } from "@/context/NotificationsContext";
 import { listNotifications } from "@/api/notifications";
 
 // shadcn/ui
@@ -10,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Loader2 } from "lucide-react";
+import { useNotifications } from "@/providers/NotificationsProvider";
 
 function relativeTime(ts) {
     if (!ts) return "";
