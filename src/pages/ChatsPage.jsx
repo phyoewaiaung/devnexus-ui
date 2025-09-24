@@ -11,15 +11,27 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { toast } from 'sonner';
 import {
-    MessageSquare, Users, UserPlus, Search as SearchIcon, AlertCircle, PlusCircle, ChevronRight,
-    Check, X, Loader2, UserCheck, LogIn, MessagesSquare, MessageCircle
+    MessageSquare,
+    Users,
+    UserPlus,
+    Search as SearchIcon,
+    AlertCircle,
+    PlusCircle,
+    ChevronRight,
+    Check,
+    X,
+    Loader2,
+    MessageCircle,
+    CornerDownLeft,
+    ArrowUp,
+    ArrowDown,
 } from 'lucide-react';
 
 const nameOf = (u) => u?.name || u?.username || 'Unknown';
@@ -52,38 +64,46 @@ function ConversationItem({ convo, meId, isOnline }) {
 
     return (
         <Link to={`/chats/${convo._id}`} className="block">
-            <Card className="p-3 hover:bg-accent/50 transition-colors">
+            <Card className="p-3 sm:p-4 hover:bg-accent/50 transition-colors cursor-pointer">
                 <div className="flex items-center gap-3">
-                    <div className="relative">
-                        <Avatar className="h-10 w-10">
+                    <div className="relative flex-shrink-0">
+                        <Avatar className="h-10 w-10 sm:h-12 sm:w-12">
                             {convo.isGroup ? (
-                                <AvatarFallback>GR</AvatarFallback>
+                                <AvatarFallback className="text-sm font-semibold bg-gradient-to-br from-blue-500 to-purple-600 text-white">
+                                    GR
+                                </AvatarFallback>
                             ) : other?.avatarUrl ? (
                                 <AvatarImage src={other.avatarUrl} alt={nameOf(other)} />
                             ) : (
-                                <AvatarFallback>{initials(other)}</AvatarFallback>
+                                <AvatarFallback className="text-sm font-semibold bg-gradient-to-br from-indigo-500 to-pink-500 text-white">
+                                    {initials(other)}
+                                </AvatarFallback>
                             )}
                         </Avatar>
                         {!convo.isGroup && (
-                            <span className="absolute -bottom-0 -right-0">
+                            <span className="absolute -bottom-0.5 -right-0.5 bg-background rounded-full p-0.5">
                                 <PresenceDot online={online} />
                             </span>
                         )}
                     </div>
 
                     <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                            <p className="font-medium truncate">{title}</p>
-                            {convo.isGroup && <Badge variant="secondary" className="text-xs">Group</Badge>}
+                        <div className="flex items-center gap-2 mb-1">
+                            <p className="font-semibold text-foreground truncate text-sm sm:text-base">{title}</p>
+                            {convo.isGroup && <Badge variant="secondary" className="text-xs px-2 py-0.5">Group</Badge>}
                         </div>
                         {convo.lastMessage && (
-                            <p className="text-xs text-muted-foreground truncate">{lastMessagePreview(convo.lastMessage)}</p>
+                            <p className="text-xs sm:text-sm text-muted-foreground truncate leading-relaxed">
+                                {lastMessagePreview(convo.lastMessage)}
+                            </p>
                         )}
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-shrink-0">
                         {convo.unread > 0 && (
-                            <Badge className="rounded-full px-2 py-0 text-xs">{convo.unread}</Badge>
+                            <Badge className="rounded-full px-2 py-0.5 text-xs min-w-[20px] h-5 flex items-center justify-center bg-blue-600 hover:bg-blue-700">
+                                {convo.unread > 99 ? '99+' : convo.unread}
+                            </Badge>
                         )}
                         <ChevronRight className="h-4 w-4 text-muted-foreground" />
                     </div>
@@ -93,25 +113,56 @@ function ConversationItem({ convo, meId, isOnline }) {
     );
 }
 
-function UserRow({ user, selected, onToggle, onDM }) {
+/**
+ * User row
+ * mode:
+ *  - 'open': clicking row opens DM immediately
+ *  - 'select': clicking toggles selection (for group builder)
+ */
+function UserRow({ user, highlighted, mode = 'open', selected, onOpen, onToggle }) {
+    const handleClick = () => {
+        if (mode === 'select') onToggle?.(user);
+        else onOpen?.(user);
+    };
     return (
-        <div className={`w-full px-3 py-2 rounded-lg hover:bg-accent flex items-center gap-3 ${selected ? 'bg-accent/60' : ''}`}>
-            <button onClick={() => onToggle(user)} className="flex-1 flex items-center gap-3 text-left">
-                <Avatar className="h-8 w-8">
-                    {user.avatarUrl ? <AvatarImage src={user.avatarUrl} alt={nameOf(user)} /> : <AvatarFallback>{initials(user)}</AvatarFallback>}
+        <div
+            className={`w-full px-3 py-2.5 rounded-lg flex items-center gap-3 cursor-pointer transition-colors ${highlighted ? 'bg-accent/70' : 'hover:bg-accent'
+                } ${selected ? 'ring-2 ring-blue-500/50 bg-blue-50 dark:bg-blue-950/30' : ''}`}
+            role="option"
+            aria-selected={highlighted}
+            onClick={handleClick}
+        >
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+                <Avatar className="h-9 w-9 flex-shrink-0">
+                    {user.avatarUrl ? (
+                        <AvatarImage src={user.avatarUrl} alt={nameOf(user)} />
+                    ) : (
+                        <AvatarFallback className="bg-gradient-to-br from-green-500 to-blue-500 text-white text-sm font-semibold">
+                            {initials(user)}
+                        </AvatarFallback>
+                    )}
                 </Avatar>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                        <p className="font-medium truncate">{nameOf(user)}</p>
-                        {user.username && <span className="text-xs text-muted-foreground truncate">@{user.username}</span>}
+                        <p className="font-medium truncate text-sm">{nameOf(user)}</p>
+                        {user.username && (
+                            <span className="text-xs text-muted-foreground truncate">@{user.username}</span>
+                        )}
                     </div>
                 </div>
-            </button>
-            <div className="ml-2 flex items-center gap-2">
-                {selected ? <Check className="h-4 w-4" /> : <UserPlus className="h-4 w-4 text-muted-foreground" />}
-                <Button size="icon" variant="ghost" aria-label="Message" onClick={() => onDM(user)}>
-                    <MessageCircle className="h-4 w-4" />
-                </Button>
+            </div>
+            <div className="ml-2 flex items-center gap-2 flex-shrink-0">
+                {mode === 'select' ? (
+                    selected ? (
+                        <div className="bg-blue-600 rounded-full p-1">
+                            <Check className="h-3 w-3 text-white" />
+                        </div>
+                    ) : (
+                        <UserPlus className="h-4 w-4 text-muted-foreground" />
+                    )
+                ) : (
+                    <MessageCircle className="h-4 w-4 text-muted-foreground" />
+                )}
             </div>
         </div>
     );
@@ -125,20 +176,36 @@ export default function ChatsPage() {
 
     const [tab, setTab] = useState('messages');
     const [filter, setFilter] = useState('all');
-    const [query, setQuery] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
 
     const [conversations, setConversations] = useState([]);
     const [invites, setInvites] = useState([]);
 
-    const [openNew, setOpenNew] = useState(false);
+    // Header people search (users only) — opens DM directly
+    const [query, setQuery] = useState('');
     const [searching, setSearching] = useState(false);
     const [results, setResults] = useState([]);
-    const [selected, setSelected] = useState([]);
+    const [highlightIndex, setHighlightIndex] = useState(0);
+    const listRef = useRef(null);
+
+    // New Chat dialog (two tabs)
+    const [openNew, setOpenNew] = useState(false);
+    const [dialogTab, setDialogTab] = useState('direct');
+
+    // Direct tab
+    const [dmQuery, setDmQuery] = useState('');
+    const [dmSearching, setDmSearching] = useState(false);
+    const [dmResults, setDmResults] = useState([]);
+    const [initialDMMessage, setInitialDMMessage] = useState('');
+
+    // Group tab
+    const [groupQuery, setGroupQuery] = useState('');
+    const [groupSearching, setGroupSearching] = useState(false);
+    const [groupResults, setGroupResults] = useState([]);
+    const [selectedGroup, setSelectedGroup] = useState([]);
     const [roomTitle, setRoomTitle] = useState('');
     const [inviteMessage, setInviteMessage] = useState('');
-    const [initialDMMessage, setInitialDMMessage] = useState('');
 
     const load = useCallback(async () => {
         try {
@@ -159,47 +226,70 @@ export default function ChatsPage() {
 
     useEffect(() => { load(); }, [load]);
 
-    // 🔔 Immediately reflect invites on new notification
+    // reflect invites quickly
     const lastInviteIdRef = useRef(null);
     useEffect(() => {
         if (!Array.isArray(notifItems)) return;
-        // find the latest chat:invite
-        const latestInvite = notifItems.find(n => n.type === 'chat:invite');
+        const latestInvite = notifItems.find((n) => n.type === 'chat:invite');
         if (!latestInvite) return;
         const candidate = String(latestInvite.conversation || '');
         if (candidate && lastInviteIdRef.current !== candidate) {
             lastInviteIdRef.current = candidate;
-            // Re-query conversations so Invites tab updates instantly
             load();
         }
     }, [notifItems, load]);
 
-    // Debounced user search
+    // MAIN: Debounced user search
     useEffect(() => {
         const ctrl = new AbortController();
         const t = setTimeout(async () => {
-            if (!query) { setResults([]); return; }
+            if (!query?.trim()) { setResults([]); setHighlightIndex(0); return; }
             try {
                 setSearching(true);
-                const { users } = await searchUsers(query, { signal: ctrl.signal });
+                const { users } = await searchUsers(query.trim(), { signal: ctrl.signal });
                 setResults(users || []);
+                setHighlightIndex(0);
             } catch { /* ignore */ }
             finally { setSearching(false); }
         }, 250);
         return () => { clearTimeout(t); ctrl.abort(); };
     }, [query]);
 
-    const toggleSelect = (u) => {
-        setSelected((prev) => prev.some((x) => String(x._id) === String(u._id))
-            ? prev.filter((x) => String(x._id) !== String(u._id))
-            : [...prev, u]
-        );
-    };
+    // DIALOG: Direct tab search
+    useEffect(() => {
+        const ctrl = new AbortController();
+        const t = setTimeout(async () => {
+            if (!dmQuery?.trim()) { setDmResults([]); return; }
+            try {
+                setDmSearching(true);
+                const { users } = await searchUsers(dmQuery.trim(), { signal: ctrl.signal });
+                setDmResults(users || []);
+            } catch { /* ignore */ }
+            finally { setDmSearching(false); }
+        }, 250);
+        return () => { clearTimeout(t); ctrl.abort(); };
+    }, [dmQuery]);
+
+    // DIALOG: Group tab search
+    useEffect(() => {
+        const ctrl = new AbortController();
+        const t = setTimeout(async () => {
+            if (!groupQuery?.trim()) { setGroupResults([]); return; }
+            try {
+                setGroupSearching(true);
+                const { users } = await searchUsers(groupQuery.trim(), { signal: ctrl.signal });
+                setGroupResults(users || []);
+            } catch { /* ignore */ }
+            finally { setGroupSearching(false); }
+        }, 250);
+        return () => { clearTimeout(t); ctrl.abort(); };
+    }, [groupQuery]);
 
     const openDM = async (u) => {
         try {
-            const existing = (conversations || []).find((c) => !c.isGroup &&
-                (c.participants || []).some((p) => String(p.user?._id || p.user) === String(u._id)));
+            const existing = (conversations || []).find(
+                (c) => !c.isGroup && (c.participants || []).some((p) => String(p.user?._id || p.user) === String(u._id))
+            );
             if (existing) return navigate(`/chats/${existing._id}`);
 
             const convo = await ChatsAPI.startDM(u._id, { initialMessage: initialDMMessage?.trim() || '' });
@@ -210,36 +300,39 @@ export default function ChatsPage() {
         }
     };
 
-    const startChat = async () => {
-        try {
-            if (selected.length === 0) return;
+    const toggleGroupSelect = (u) => {
+        setSelectedGroup((prev) =>
+            prev.some((x) => String(x._id) === String(u._id))
+                ? prev.filter((x) => String(x._id) !== String(u._id))
+                : [...prev, u]
+        );
+    };
 
-            if (selected.length === 1) {
-                await openDM(selected[0]);
-                setInitialDMMessage('');
-                setOpenNew(false);
+    const createGroup = async () => {
+        try {
+            if (selectedGroup.length < 2) {
+                toast.error('Select at least 2 participants for a group');
                 return;
             }
-
-            // Create empty room (creator only)
             const conversation = await ChatsAPI.createConversation({
                 title: roomTitle.trim() || 'New Room',
                 isGroup: true,
-                participantIds: [], // make sure no auto-join
+                participantIds: [],
             });
-
-            // Send invites with optional message
-            await ChatsAPI.invite(conversation._id, selected.map(u => u._id), inviteMessage?.trim() || undefined);
-
-            toast.success('Room created. Invites sent — users must accept to join.');
+            await ChatsAPI.invite(
+                conversation._id,
+                selectedGroup.map((u) => u._id),
+                inviteMessage?.trim() || undefined
+            );
+            toast.success('Group created. Invites sent.');
             setOpenNew(false);
-            setSelected([]);
+            setSelectedGroup([]);
             setRoomTitle('');
             setInviteMessage('');
             await load();
             navigate(`/chats/${conversation._id}`);
         } catch (e) {
-            toast.error(e?.message || 'Failed to start');
+            toast.error(e?.message || 'Failed to create group');
         }
     };
 
@@ -248,9 +341,7 @@ export default function ChatsPage() {
             await ChatsAPI.acceptInvite(id);
             toast.success('Joined the room');
             await load();
-        } catch (e) {
-            toast.error(e?.message || 'Failed to accept');
-        }
+        } catch (e) { toast.error(e?.message || 'Failed to accept'); }
     };
 
     const decline = async (id) => {
@@ -258,9 +349,7 @@ export default function ChatsPage() {
             await ChatsAPI.declineInvite(id);
             toast.success('Invitation declined');
             await load();
-        } catch (e) {
-            toast.error(e?.message || 'Failed to decline');
-        }
+        } catch (e) { toast.error(e?.message || 'Failed to decline'); }
     };
 
     const filteredConversations = useMemo(() => {
@@ -269,152 +358,299 @@ export default function ChatsPage() {
         return conversations;
     }, [conversations, filter]);
 
-    const SelectedChips = () => (
-        selected.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-2">
-                {selected.map((u) => (
-                    <span key={u._id} className="inline-flex items-center gap-2 rounded-full bg-accent px-3 py-1 text-sm">
-                        {nameOf(u)}
-                        <button
-                            className="text-muted-foreground hover:text-foreground"
-                            onClick={() => setSelected((prev) => prev.filter((x) => String(x._id) !== String(u._id)))}
-                            aria-label={`Remove ${nameOf(u)}`}
-                        >
-                            <X className="h-3.5 w-3.5" />
-                        </button>
-                    </span>
-                ))}
-            </div>
-        )
-    );
+    // Keyboard navigation for MAIN results
+    const onKeyDownSearch = (e) => {
+        if (!results?.length) return;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setHighlightIndex((i) => Math.min(i + 1, results.length - 1));
+            listRef.current?.querySelectorAll('[role="option"]')[
+                Math.min(highlightIndex + 1, results.length - 1)
+            ]?.scrollIntoView({ block: 'nearest' });
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setHighlightIndex((i) => Math.max(i - 1, 0));
+            listRef.current?.querySelectorAll('[role="option"]')[
+                Math.max(highlightIndex - 1, 0)
+            ]?.scrollIntoView({ block: 'nearest' });
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            const u = results[highlightIndex];
+            if (u) openDM(u);
+        }
+    };
 
     return (
         <div className="min-h-screen bg-background">
-            <div className="border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                <div className="max-w-3xl mx-auto px-3 sm:px-4 h-14 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <MessagesSquare className="h-5 w-5 text-[#3C81D2]" />
-                        <h1 className="text-lg font-semibold">Chats</h1>
+            {/* Sticky Header */}
+            <div className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur-lg supports-[backdrop-filter]:bg-background/80 shadow-sm">
+                {/* Main Header */}
+                <div className="max-w-4xl mx-auto px-3 sm:px-4 lg:px-6 h-14 sm:h-16 flex items-center justify-between">
+                    <div className="flex items-center gap-2 sm:gap-3">
+                        <div className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600">
+                            <MessageSquare className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
+                        </div>
+                        <div>
+                            <h1 className="text-lg sm:text-xl font-bold text-foreground">Chats</h1>
+                            <p className="text-xs text-muted-foreground hidden sm:block">Stay connected with your team</p>
+                        </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <Button onClick={() => setOpenNew(true)} className="gap-2"><PlusCircle className="h-4 w-4" /> New</Button>
+                        <Button
+                            onClick={() => { setOpenNew(true); setDialogTab('direct'); }}
+                            className="gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md"
+                            size="sm"
+                        >
+                            <PlusCircle className="h-4 w-4" />
+                            <span className="hidden sm:inline">New Chat</span>
+                            <span className="sm:hidden">New</span>
+                        </Button>
                     </div>
                 </div>
 
-                <div className="max-w-3xl mx-auto px-3 sm:px-4 pb-3">
+                {/* Sticky Search Section */}
+                <div className="max-w-4xl mx-auto px-3 sm:px-4 lg:px-6 pb-3 sm:pb-4">
                     <div className="relative">
-                        <SearchIcon className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search people…" className="pl-9" />
+                        <SearchIcon className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground z-10" />
+                        <Input
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            onKeyDown={onKeyDownSearch}
+                            placeholder="Search people to start a conversation..."
+                            className="pl-10 h-10 sm:h-11 bg-muted/50 border-0 focus:bg-background transition-colors"
+                            aria-autocomplete="list"
+                            aria-expanded={!!query}
+                        />
+                        {searching && (
+                            <Loader2 className="h-4 w-4 absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground" />
+                        )}
                     </div>
-                    <SelectedChips />
                 </div>
 
-                <div className="max-w-3xl mx-auto px-3 sm:px-4">
+                {/* Sticky Tabs */}
+                <div className="max-w-4xl mx-auto px-3 sm:px-4 lg:px-6">
                     <Tabs value={tab} onValueChange={setTab} className="w-full">
-                        <TabsList className="grid w-full grid-cols-2">
-                            <TabsTrigger value="messages" className="gap-2"><MessageSquare className="h-4 w-4" /> Messages</TabsTrigger>
-                            <TabsTrigger value="invites" className="gap-2"><UserPlus className="h-4 w-4" /> Invites</TabsTrigger>
+                        <TabsList className="grid w-full grid-cols-2 bg-muted/30 p-1">
+                            <TabsTrigger value="messages" className="gap-2 data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                                <MessageSquare className="h-4 w-4" />
+                                <span className="hidden sm:inline">Messages</span>
+                                <span className="sm:hidden">Chats</span>
+                                {filteredConversations.length > 0 && (
+                                    <Badge variant="secondary" className="ml-1 text-xs px-1.5 py-0">
+                                        {filteredConversations.length}
+                                    </Badge>
+                                )}
+                            </TabsTrigger>
+                            <TabsTrigger value="invites" className="gap-2 data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                                <UserPlus className="h-4 w-4" />
+                                <span className="hidden sm:inline">Invites</span>
+                                <span className="sm:hidden">Invites</span>
+                                {invites.length > 0 && (
+                                    <Badge variant="destructive" className="ml-1 text-xs px-1.5 py-0">
+                                        {invites.length}
+                                    </Badge>
+                                )}
+                            </TabsTrigger>
                         </TabsList>
                     </Tabs>
                 </div>
             </div>
 
-            <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4 space-y-3">
+            {/* Main Content */}
+            <div className="max-w-4xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6">
                 {error && (
-                    <Alert variant="destructive">
+                    <Alert variant="destructive" className="shadow-sm">
                         <AlertCircle className="h-4 w-4" />
                         <AlertDescription>{error}</AlertDescription>
                     </Alert>
                 )}
 
+                {/* MAIN search results - Enhanced */}
                 {query && (
-                    <Card className="p-2">
-                        <div className="flex items-center gap-2 px-2 py-1">
-                            <SearchIcon className="h-4 w-4" />
-                            <p className="text-sm text-muted-foreground">Search results</p>
-                            {searching && <Loader2 className="h-3.5 w-3.5 animate-spin ml-auto" />}
+                    <Card className="p-2 sm:p-3 shadow-lg border-0 bg-gradient-to-br from-background to-muted/20">
+                        <div className="flex items-center gap-2 px-2 py-1.5">
+                            <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-green-500 to-blue-500">
+                                <SearchIcon className="h-3 w-3 text-white" />
+                            </div>
+                            <p className="text-sm font-medium text-foreground">People</p>
+                            {searching && <Loader2 className="h-3.5 w-3.5 animate-spin ml-auto text-blue-600" />}
                         </div>
                         <Separator className="my-2" />
-                        <div className="max-h-72 overflow-auto">
+                        <div className="max-h-80 overflow-auto" ref={listRef} role="listbox">
                             {results.length === 0 ? (
-                                <p className="text-sm text-muted-foreground px-3 py-6 text-center">No matches</p>
-                            ) : (
-                                results.map((u) => (
-                                    <div key={u._id} className="px-1">
-                                        <UserRow
-                                            user={u}
-                                            selected={selected.some((x) => String(x._id) === String(u._id))}
-                                            onToggle={toggleSelect}
-                                            onDM={openDM}
-                                        />
+                                <div className="text-center py-8">
+                                    <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-muted/50 flex items-center justify-center">
+                                        <SearchIcon className="h-5 w-5 text-muted-foreground" />
                                     </div>
-                                ))
+                                    <p className="text-sm text-muted-foreground">No people found</p>
+                                    <p className="text-xs text-muted-foreground mt-1">Try a different search term</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-1">
+                                    {results.map((u, idx) => (
+                                        <div key={u._id} className="px-1">
+                                            <UserRow
+                                                user={u}
+                                                highlighted={idx === highlightIndex}
+                                                mode="open"
+                                                onOpen={openDM}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
                             )}
                         </div>
-                        {selected.length > 0 && (
-                            <div className="flex items-center justify-between pt-2">
-                                <div className="text-sm text-muted-foreground px-2">Selected: {selected.length}</div>
-                                <Button size="sm" className="gap-2" onClick={() => setOpenNew(true)}>
-                                    <PlusCircle className="h-4 w-4" /> Start
-                                </Button>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground px-2 pt-3 border-t mt-3">
+                            <div className="flex items-center gap-1">
+                                <ArrowUp className="h-3 w-3" />
+                                <ArrowDown className="h-3 w-3" />
+                                <span>navigate</span>
                             </div>
-                        )}
+                            <span>•</span>
+                            <div className="flex items-center gap-1">
+                                <CornerDownLeft className="h-3 w-3" />
+                                <span>select</span>
+                            </div>
+                        </div>
                     </Card>
                 )}
 
                 {tab === 'messages' && (
-                    <div className="space-y-3">
-                        <div className="flex items-center gap-2">
-                            <Button size="sm" variant={filter === 'all' ? 'default' : 'outline'} onClick={() => setFilter('all')}>All</Button>
-                            <Button size="sm" variant={filter === 'dm' ? 'default' : 'outline'} onClick={() => setFilter('dm')}>Direct</Button>
-                            <Button size="sm" variant={filter === 'rooms' ? 'default' : 'outline'} onClick={() => setFilter('rooms')}>Rooms</Button>
+                    <div className="space-y-4 sm:space-y-6">
+                        {/* Enhanced Filter Buttons */}
+                        <div className="flex items-center gap-2 overflow-x-auto pb-2">
+                            <Button
+                                size="sm"
+                                variant={filter === 'all' ? 'default' : 'outline'}
+                                onClick={() => setFilter('all')}
+                                className={filter === 'all' ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white' : ''}
+                            >
+                                All
+                                <Badge variant="secondary" className="ml-2 text-xs">
+                                    {conversations.length}
+                                </Badge>
+                            </Button>
+                            <Button
+                                size="sm"
+                                variant={filter === 'dm' ? 'default' : 'outline'}
+                                onClick={() => setFilter('dm')}
+                                className={filter === 'dm' ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white' : ''}
+                            >
+                                Direct
+                                <Badge variant="secondary" className="ml-2 text-xs">
+                                    {conversations.filter(c => !c.isGroup).length}
+                                </Badge>
+                            </Button>
+                            <Button
+                                size="sm"
+                                variant={filter === 'rooms' ? 'default' : 'outline'}
+                                onClick={() => setFilter('rooms')}
+                                className={filter === 'rooms' ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white' : ''}
+                            >
+                                Rooms
+                                <Badge variant="secondary" className="ml-2 text-xs">
+                                    {conversations.filter(c => c.isGroup).length}
+                                </Badge>
+                            </Button>
                         </div>
 
                         {loading ? (
-                            Array.from({ length: 6 }).map((_, i) => (
-                                <Card key={i} className="p-3 animate-pulse">
-                                    <div className="h-4 bg-muted rounded w-1/3 mb-2" />
-                                    <div className="h-3 bg-muted rounded w-2/3" />
-                                </Card>
-                            ))
+                            <div className="space-y-3">
+                                {Array.from({ length: 6 }).map((_, i) => (
+                                    <Card key={i} className="p-3 sm:p-4 animate-pulse">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-muted rounded-full flex-shrink-0" />
+                                            <div className="flex-1 space-y-2">
+                                                <div className="h-4 bg-muted rounded w-1/3" />
+                                                <div className="h-3 bg-muted rounded w-2/3" />
+                                            </div>
+                                        </div>
+                                    </Card>
+                                ))}
+                            </div>
                         ) : filteredConversations.length === 0 ? (
-                            <Card className="p-6 text-center">
-                                <Users className="h-6 w-6 mx-auto text-[#3C81D2]" />
-                                <p className="mt-2 text-sm text-muted-foreground">No conversations yet.</p>
-                                <Button className="mt-3" onClick={() => setOpenNew(true)}>Start a chat</Button>
+                            <Card className="p-8 sm:p-12 text-center shadow-lg border-0 bg-gradient-to-br from-background to-muted/20">
+                                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+                                    <Users className="h-8 w-8 text-white" />
+                                </div>
+                                <h3 className="text-lg font-semibold mb-2">No conversations yet</h3>
+                                <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">
+                                    Start connecting with your team by creating a new chat or joining a room.
+                                </p>
+                                <Button
+                                    onClick={() => setOpenNew(true)}
+                                    className="gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md"
+                                >
+                                    <PlusCircle className="h-4 w-4" /> Start a chat
+                                </Button>
                             </Card>
                         ) : (
-                            filteredConversations.map((c) => (
-                                <ConversationItem key={c._id} convo={c} meId={user?._id} isOnline={isOnline} />
-                            ))
+                            <div className="space-y-2 sm:space-y-3">
+                                {filteredConversations.map((c) => (
+                                    <ConversationItem key={c._id} convo={c} meId={user?._id} isOnline={isOnline} />
+                                ))}
+                            </div>
                         )}
                     </div>
                 )}
 
                 {tab === 'invites' && (
-                    <div className="space-y-2">
+                    <div className="space-y-3 sm:space-y-4">
                         {invites.length === 0 ? (
-                            <Card className="p-6 text-center">
-                                <UserCheck className="h-6 w-6 mx-auto text-[#3C81D2]" />
-                                <p className="mt-2 text-sm text-muted-foreground">No pending invitations.</p>
+                            <Card className="p-8 sm:p-12 text-center shadow-lg border-0 bg-gradient-to-br from-background to-muted/20">
+                                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center">
+                                    <UserPlus className="h-8 w-8 text-white" />
+                                </div>
+                                <h3 className="text-lg font-semibold mb-2">No pending invitations</h3>
+                                <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+                                    You're all caught up! New chat invitations will appear here.
+                                </p>
                             </Card>
                         ) : (
                             invites.map((c) => (
-                                <Card key={c._id} className="p-3">
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <p className="font-medium">{c.title || 'Chat invitation'}</p>
-                                            <p className="text-xs text-muted-foreground">{c.participants?.length || 0} participants</p>
+                                <Card key={c._id} className="p-4 sm:p-5 shadow-md border-0 bg-gradient-to-r from-background to-muted/10">
+                                    <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                                            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
+                                                <Users className="h-6 w-6 text-white" />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="font-semibold text-foreground text-sm sm:text-base truncate">
+                                                    {c.title || 'Chat invitation'}
+                                                </p>
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <p className="text-xs sm:text-sm text-muted-foreground">
+                                                        {c.participants?.length || 0} participants
+                                                    </p>
+                                                    <Badge variant="outline" className="text-xs px-2 py-0">
+                                                        Pending
+                                                    </Badge>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="flex items-center gap-2">
-                                            <Button size="sm" variant="outline" onClick={() => navigate(`/chats/${c._id}`)} className="gap-1">
-                                                <LogIn className="h-4 w-4" /> View
+                                        <div className="flex items-center gap-2 flex-shrink-0">
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => navigate(`/chats/${c._id}`)}
+                                                className="gap-1"
+                                            >
+                                                View
                                             </Button>
-                                            <Button size="sm" variant="secondary" onClick={async () => { await accept(c._id); }} className="gap-1">
+                                            <Button
+                                                size="sm"
+                                                onClick={async () => { await accept(c._id); }}
+                                                className="gap-1 bg-green-600 hover:bg-green-700 text-white"
+                                            >
                                                 <Check className="h-4 w-4" /> Accept
                                             </Button>
-                                            <Button size="sm" variant="ghost" onClick={async () => { await decline(c._id); }} className="gap-1 text-destructive">
-                                                <X className="h-4 w-4" /> Decline
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={async () => { await decline(c._id); }}
+                                                className="gap-1 text-destructive hover:bg-destructive/10"
+                                            >
+                                                <X className="h-4 w-4" />
                                             </Button>
                                         </div>
                                     </div>
@@ -425,77 +661,228 @@ export default function ChatsPage() {
                 )}
             </div>
 
+            {/* Enhanced New Chat Dialog */}
             <Dialog open={openNew} onOpenChange={setOpenNew}>
-                <DialogContent className="sm:max-w-lg">
-                    <DialogHeader>
-                        <DialogTitle>{selected.length > 1 ? 'Create room & invite' : 'Start a DM'}</DialogTitle>
+                <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
+                    <DialogHeader className="flex-shrink-0">
+                        <DialogTitle className="text-xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                            Start a new chat
+                        </DialogTitle>
+                        <p className="text-sm text-muted-foreground mt-1">
+                            Connect with individuals or create group conversations
+                        </p>
                     </DialogHeader>
 
-                    <div className="space-y-4">
-                        {selected.length > 1 ? (
-                            <>
-                                <div>
-                                    <label className="text-sm font-medium">Room title</label>
-                                    <Input
-                                        value={roomTitle}
-                                        onChange={(e) => setRoomTitle(e.target.value)}
-                                        placeholder="Team sync, Weekend plan…"
-                                        className="mt-2"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-sm font-medium">Invite message (optional)</label>
-                                    <textarea
-                                        value={inviteMessage}
-                                        onChange={(e) => setInviteMessage(e.target.value)}
-                                        placeholder="Say hi or add context…"
-                                        className="mt-2 w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                                        rows={3}
-                                    />
-                                </div>
-                            </>
-                        ) : (
+                    <Tabs value={dialogTab} onValueChange={setDialogTab} className="flex-1 flex flex-col">
+                        <TabsList className="grid w-full grid-cols-2 bg-muted/30 p-1 mb-4">
+                            <TabsTrigger value="direct" className="data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                                <MessageCircle className="h-4 w-4 mr-2" />
+                                Direct Message
+                            </TabsTrigger>
+                            <TabsTrigger value="group" className="data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                                <Users className="h-4 w-4 mr-2" />
+                                Group Chat
+                            </TabsTrigger>
+                        </TabsList>
+
+                        {/* DIRECT TAB - Enhanced */}
+                        <TabsContent value="direct" className="space-y-2 flex-1 flex flex-col">
                             <div>
-                                <label className="text-sm font-medium">Initial message (optional)</label>
+                                <label className="text-sm font-semibold text-foreground block mb-2">
+                                    Find people to message
+                                </label>
+                                <div className="relative">
+                                    <SearchIcon className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground z-10" />
+                                    <Input
+                                        value={dmQuery}
+                                        onChange={(e) => setDmQuery(e.target.value)}
+                                        placeholder="Type a name or username..."
+                                        className="pl-10 h-11 bg-muted/50 border-0 focus:bg-background"
+                                    />
+                                    {dmSearching && (
+                                        <Loader2 className="h-4 w-4 absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-blue-600" />
+                                    )}
+                                </div>
+                            </div>
+
+                            <Card className="p-3 flex-1 min-h-0 bg-gradient-to-br from-background to-muted/10">
+                                <div className="flex items-center gap-2 px-2 py-1.5 mb-3">
+                                    <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600">
+                                        <Users className="h-3 w-3 text-white" />
+                                    </div>
+                                    <p className="text-sm font-medium text-foreground">Available People</p>
+                                    {dmSearching && <Loader2 className="h-3.5 w-3.5 animate-spin ml-auto text-blue-600" />}
+                                </div>
+                                <Separator className="mb-3" />
+                                <div className="max-h-80 overflow-auto">
+                                    {dmResults.length === 0 ? (
+                                        <div className="text-center py-8">
+                                            <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-muted/50 flex items-center justify-center">
+                                                <SearchIcon className="h-5 w-5 text-muted-foreground" />
+                                            </div>
+                                            <p className="text-sm text-muted-foreground">
+                                                {dmQuery ? 'No people found' : 'Start typing to search for people'}
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-1">
+                                            {dmResults.map((u) => (
+                                                <div key={u._id} className="px-1">
+                                                    <UserRow user={u} mode="open" onOpen={openDM} />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </Card>
+
+                            <DialogFooter className="flex-shrink-0">
+                                <Button variant="ghost" onClick={() => setOpenNew(false)}>Close</Button>
+                            </DialogFooter>
+                        </TabsContent>
+
+                        {/* GROUP TAB - Enhanced */}
+                        <TabsContent value="group" className="space-y-2 flex-1 flex flex-col">
+                            <div>
+                                <label className="text-sm font-semibold text-foreground block mb-2">
+                                    Group name
+                                </label>
+                                <Input
+                                    value={roomTitle}
+                                    onChange={(e) => setRoomTitle(e.target.value)}
+                                    placeholder="Team sync, Weekend plan, Project discussion..."
+                                    className="h-11 bg-muted/50 border-0 focus:bg-background"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="text-sm font-semibold text-foreground block mb-2">
+                                    Add participants
+                                </label>
+                                <div className="relative">
+                                    <SearchIcon className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground z-10" />
+                                    <Input
+                                        value={groupQuery}
+                                        onChange={(e) => setGroupQuery(e.target.value)}
+                                        placeholder="Search for people to add..."
+                                        className="pl-10 h-11 bg-muted/50 border-0 focus:bg-background"
+                                    />
+                                    {groupSearching && (
+                                        <Loader2 className="h-4 w-4 absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-blue-600" />
+                                    )}
+                                </div>
+                            </div>
+
+                            <Card className=" p-3 bg-gradient-to-br from-background to-muted/10 gap-2">
+                                <div className="flex items-center gap-2 px-2">
+                                    <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-green-500 to-blue-500">
+                                        <Users className="h-3 w-3 text-white" />
+                                    </div>
+                                    <p className="text-sm font-medium text-foreground">People</p>
+                                    {groupSearching && <Loader2 className="h-3.5 w-3.5 animate-spin ml-auto text-blue-600" />}
+                                </div>
+                                <Separator className="mb-1" />
+                                <div className="max-h-20 min-h-20 overflow-auto">
+                                    {groupResults.length === 0 ? (
+                                        <div className="text-center pb-3">
+                                            <div className="w-7 h-7 mx-auto mb-2 rounded-full bg-muted/50 flex items-center justify-center">
+                                                <SearchIcon className="h-4 w-4 text-muted-foreground" />
+                                            </div>
+                                            <p className="text-sm text-muted-foreground">
+                                                {groupQuery ? 'No people found' : 'Search to add people'}
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-1">
+                                            {groupResults.map((u) => (
+                                                <div key={u._id} className="px-1">
+                                                    <UserRow
+                                                        user={u}
+                                                        mode="select"
+                                                        selected={selectedGroup.some((x) => String(x._id) === String(u._id))}
+                                                        onToggle={toggleGroupSelect}
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </Card>
+
+                            <div>
+                                <div className="flex items-center justify-between mb-2">
+                                    <label className="text-sm font-semibold text-foreground">
+                                        Selected participants
+                                    </label>
+                                    <Badge variant="outline" className="text-xs">
+                                        {selectedGroup.length} selected
+                                    </Badge>
+                                </div>
+                                <Card className="max-h-30 min-h-30 overflow-auto bg-muted/20 py-2">
+                                    {selectedGroup.length === 0 ? (
+                                        <div className="text-center">
+                                            <div className="w-7 h-7 mx-auto rounded-full bg-muted/50 flex items-center justify-center">
+                                                <UserPlus className="h-4 w-4 text-muted-foreground" />
+                                            </div>
+                                            <p className="text-sm text-muted-foreground">No participants selected yet</p>
+                                        </div>
+                                    ) : (
+                                        <div className=" px-2 flex flex-wrap gap-2 items-start">
+                                            {selectedGroup.map((u) => (
+                                                <div key={u._id} className="flex w-fit items-center justify-between px-3 py-2 bg-background rounded-lg shadow-sm">
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        <Avatar className="h-7 w-7 flex-shrink-0">
+                                                            {u.avatarUrl ? (
+                                                                <AvatarImage src={u.avatarUrl} alt={nameOf(u)} />
+                                                            ) : (
+                                                                <AvatarFallback className="bg-gradient-to-br from-purple-500 to-pink-500 text-white text-xs">
+                                                                    {initials(u)}
+                                                                </AvatarFallback>
+                                                            )}
+                                                        </Avatar>
+                                                        <span className="truncate text-sm font-medium">{nameOf(u)}</span>
+                                                    </div>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        onClick={() => setSelectedGroup((prev) => prev.filter((x) => String(x._id) !== String(u._id)))}
+                                                        className="text-destructive hover:bg-destructive/10 h-7 w-7 p-0"
+                                                    >
+                                                        <X className="h-4 w-4" />
+                                                    </Button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </Card>
+                            </div>
+
+                            <div>
+                                <label className="text-sm font-semibold text-foreground block mb-2">
+                                    Invitation message (optional)
+                                </label>
                                 <textarea
-                                    value={initialDMMessage}
-                                    onChange={(e) => setInitialDMMessage(e.target.value)}
-                                    placeholder="Send a first message…"
-                                    className="mt-2 w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                    value={inviteMessage}
+                                    onChange={(e) => setInviteMessage(e.target.value)}
+                                    placeholder="Add context about the group or say hello..."
+                                    className="w-full rounded-lg border bg-muted/50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-background resize-none transition-colors"
                                     rows={3}
                                 />
                             </div>
-                        )}
 
-                        <div>
-                            <label className="text-sm font-medium">Participants</label>
-                            <div className="mt-2 max-h-56 overflow-auto rounded-lg border">
-                                {selected.length === 0 && (
-                                    <p className="text-sm text-muted-foreground p-3">Use the search above to add people.</p>
-                                )}
-                                {selected.map((u) => (
-                                    <div key={u._id} className="flex items-center justify-between px-3 py-2 border-b last:border-b-0">
-                                        <div className="flex items-center gap-2 min-w-0">
-                                            <Avatar className="h-7 w-7">
-                                                {u.avatarUrl ? <AvatarImage src={u.avatarUrl} alt={nameOf(u)} /> : <AvatarFallback>{initials(u)}</AvatarFallback>}
-                                            </Avatar>
-                                            <span className="truncate">{nameOf(u)}</span>
-                                        </div>
-                                        <Button size="sm" variant="ghost" onClick={() => setSelected((prev) => prev.filter((x) => String(x._id) !== String(u._id)))} className="text-destructive">
-                                            <X className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-
-                    <DialogFooter>
-                        <Button variant="ghost" onClick={() => setOpenNew(false)}>Cancel</Button>
-                        <Button onClick={startChat} disabled={selected.length === 0} className="gap-2">
-                            <PlusCircle className="h-4 w-4" /> {selected.length > 1 ? 'Create room & send invites' : 'Start DM'}
-                        </Button>
-                    </DialogFooter>
+                            <DialogFooter className="flex-shrink-0 gap-2">
+                                <Button variant="ghost" onClick={() => setOpenNew(false)}>Cancel</Button>
+                                <Button
+                                    onClick={createGroup}
+                                    disabled={selectedGroup.length < 2}
+                                    className="gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md disabled:opacity-50"
+                                >
+                                    <PlusCircle className="h-4 w-4" />
+                                    Create group ({selectedGroup.length})
+                                </Button>
+                            </DialogFooter>
+                        </TabsContent>
+                    </Tabs>
                 </DialogContent>
             </Dialog>
         </div>
