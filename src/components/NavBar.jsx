@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+// src/components/NavBar.jsx
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useInstallPrompt } from "@/hooks/useInstallPrompt";
+import { searchSuggest } from "@/api/search";
 
 // shadcn/ui
 import { Button } from "@/components/ui/button";
@@ -12,11 +14,13 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
+import { Card } from "@/components/ui/card";
 
 // icons
 import {
   Home, LogOut, LogIn, UserPlus, Bell, Search as SearchIcon,
-  User, PencilLine, Download, MessageSquare, Settings, Sun, Moon, Plus
+  User, PencilLine, Download, MessageSquare, Settings, Sun, Moon, Plus,
+  Hash, Code2, FileText
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -56,7 +60,7 @@ export default function NavBar() {
     if (newTheme !== "light" && newTheme !== "dark") return;
     setTheme(newTheme);
     if (user) {
-      try { await updateTheme(newTheme); } catch { }
+      try { await updateTheme(newTheme); } catch { /* ignore */ }
     }
   };
 
@@ -66,19 +70,161 @@ export default function NavBar() {
 
   /* ----------------------------- SEARCH ------------------------------ */
   const [query, setQuery] = useState("");
-  const [searchLoading, setSearchLoading] = useState(false);
+  const [openSug, setOpenSug] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [sug, setSug] = useState({ users: [], posts: [], languages: [], tags: [] });
+  const [highlight, setHighlight] = useState({ section: 0, index: -1 });
+  const boxRef = useRef(null);
+  const inputRef = useRef(null);
 
-  const onSearch = (e) => {
+  const sections = useMemo(() => ([
+    { key: 'users', label: 'Users', icon: User },
+    { key: 'posts', label: 'Posts', icon: FileText },
+    { key: 'languages', label: 'Languages', icon: Code2 },
+    { key: 'tags', label: 'Tags', icon: Hash },
+  ]), []);
+
+  const totalItems = useMemo(() => {
+    const len = (arr) => Array.isArray(arr) ? arr.length : 0;
+    return sections.reduce((acc, s) => acc + len(sug[s.key]), 0);
+  }, [sug, sections]);
+
+  const resetHighlight = () => setHighlight({ section: 0, index: -1 });
+
+  // Normalize payload in case fetch layer wraps it later
+  function normalizeSuggestPayload(raw) {
+    const root = raw?.data || raw?.result || raw || {};
+    return {
+      users: Array.isArray(root.users) ? root.users : [],
+      posts: Array.isArray(root.posts) ? root.posts : [],
+      languages: Array.isArray(root.languages) ? root.languages : [],
+      tags: Array.isArray(root.tags) ? root.tags : [],
+    };
+  }
+
+  const fetchSuggest = useCallback(async (q) => {
+    const term = (q || "").trim();
+    if (term.length < 2) {
+      setSug({ users: [], posts: [], languages: [], tags: [] });
+      setOpenSug(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      const raw = await searchSuggest(term);
+      console.log(raw)
+      const norm = normalizeSuggestPayload(raw);
+      setSug(norm);
+      setOpenSug(true);
+    } catch {
+      setSug({ users: [], posts: [], languages: [], tags: [] });
+      setOpenSug(false);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // close suggestions on route change
+  useEffect(() => {
+    setOpenSug(false);
+    setLoading(false);
+    setSug({ users: [], posts: [], languages: [], tags: [] });
+    resetHighlight();
+  }, [location.key]);
+
+  // debounce user input
+  useEffect(() => {
+    if (!query) {
+      setOpenSug(false);
+      setSug({ users: [], posts: [], languages: [], tags: [] });
+      return;
+    }
+    const t = setTimeout(() => {
+      fetchSuggest(query);
+    }, 150);
+    return () => clearTimeout(t);
+  }, [query, fetchSuggest]);
+
+  const onSearchSubmit = (e) => {
     e.preventDefault();
     const q = query.trim();
-    if (!q || searchLoading) return;
-    setSearchLoading(true);
+    if (!q) return;
     navigate(`/search?q=${encodeURIComponent(q)}`);
+    setOpenSug(false);
+  };
+
+  const moveHighlight = (dir) => {
+    if (!openSug || totalItems === 0) return;
+    let secIdx = highlight.section;
+    let idx = highlight.index;
+    let cycles = 0;
+
+    const nextNonEmptySection = (start, step) => {
+      let s = start;
+      for (let i = 0; i < sections.length; i++) {
+        s = (s + step + sections.length) % sections.length;
+        const list = sug[sections[s].key] || [];
+        if (list.length > 0) return s;
+      }
+      return start;
+    };
+
+    while (cycles < sections.length * 2) {
+      const list = sug[sections[secIdx].key] || [];
+      idx += dir;
+      if (idx >= 0 && idx < list.length) {
+        setHighlight({ section: secIdx, index: idx });
+        return;
+      }
+      secIdx = nextNonEmptySection(secIdx, dir);
+      const nextList = sug[sections[secIdx].key] || [];
+      if (nextList.length > 0) {
+        setHighlight({ section: secIdx, index: dir > 0 ? 0 : nextList.length - 1 });
+        return;
+      }
+      cycles++;
+    }
+  };
+
+  const activateHighlighted = () => {
+    if (!openSug) return;
+    const sec = sections[highlight.section];
+    if (!sec) return;
+    const list = sug[sec.key] || [];
+    const item = list[highlight.index];
+    if (!item) return;
+    goToSuggestion(sec.key, item);
+  };
+
+  const goToSuggestion = (type, item) => {
+    setOpenSug(false);
+    if (type === 'users') {
+      navigate(`/u/${item.username}`);
+      return;
+    }
+    if (type === 'posts') {
+      navigate(`/p/${item._id}`);
+      return;
+    }
+    if (type === 'languages') {
+      navigate(`/?lang=${encodeURIComponent(item)}`);
+      return;
+    }
+    if (type === 'tags') {
+      navigate(`/?tag=${encodeURIComponent(item)}`);
+      return;
+    }
   };
 
   useEffect(() => {
-    if (searchLoading) setSearchLoading(false);
-  }, [location.key, searchLoading]);
+    const onDocClick = (e) => {
+      if (!boxRef.current) return;
+      if (boxRef.current.contains(e.target) || inputRef.current?.contains(e.target)) return;
+      setOpenSug(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
 
   const NavLink = ({ to, children, className = "", badge = null }) => (
     <Link
@@ -152,39 +298,135 @@ export default function NavBar() {
         <div className="flex-1" />
 
         {/* Search */}
-        <form onSubmit={onSearch} className="hidden md:flex items-center relative">
-          <div className="relative group">
-            <SearchIcon
-              className={cn(
-                "absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 transition-colors",
-                searchLoading ? "text-primary animate-spin" : "text-muted-foreground group-focus-within:text-primary"
+        <div className="hidden md:flex items-center relative" ref={boxRef}>
+          <form onSubmit={onSearchSubmit} className="items-center relative">
+            <div className="relative group">
+              <SearchIcon
+                className={cn(
+                  "absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 transition-colors",
+                  loading ? "text-primary animate-spin" : "text-muted-foreground group-focus-within:text-primary"
+                )}
+              />
+              <Input
+                ref={inputRef}
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); resetHighlight(); }}
+                onFocus={() => { if (query.trim().length >= 2) setOpenSug(true); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown') { e.preventDefault(); moveHighlight(+1); }
+                  else if (e.key === 'ArrowUp') { e.preventDefault(); moveHighlight(-1); }
+                  else if (e.key === 'Enter') {
+                    if (openSug && highlight.index >= 0) {
+                      e.preventDefault();
+                      activateHighlighted();
+                    }
+                  } else if (e.key === 'Escape') {
+                    setOpenSug(false);
+                  }
+                }}
+                placeholder="Search users, posts, languages, tags..."
+                className={cn(
+                  "w-80 pl-10 pr-8 h-10 rounded-full border-border/60 bg-background/50",
+                  "focus:w-[28rem] transition-all duration-300 focus:shadow-lg focus:shadow-primary/20",
+                  "placeholder:text-muted-foreground/70"
+                )}
+              />
+              {query && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => { setQuery(""); setOpenSug(false); resetHighlight(); }}
+                  aria-label="Clear search"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 hover:bg-accent/50"
+                >
+                  ×
+                </Button>
               )}
-            />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search developers, posts, topics..."
-              disabled={searchLoading}
-              className={cn(
-                "w-80 pl-10 pr-8 h-10 rounded-full border-border/60 bg-background/50",
-                "focus:w-96 transition-all duration-300 focus:shadow-lg focus:shadow-primary/20",
-                "placeholder:text-muted-foreground/70"
+            </div>
+          </form>
+
+          {/* Suggestions dropdown */}
+          {openSug && (
+            <Card className="absolute top-[110%] right-0 w-[28rem] rounded-xl border-border/60 bg-popover/95 backdrop-blur-xl shadow-xl p-2">
+              {loading && totalItems === 0 ? (
+                <div className="p-4 text-sm text-muted-foreground">Searching…</div>
+              ) : totalItems === 0 ? (
+                <div className="p-4 text-sm text-muted-foreground">No matches</div>
+              ) : (
+                sections.map((sec, sIdx) => {
+                  const arr = sug[sec.key] || [];
+                  if (!arr.length) return null;
+                  const Icon = sec.icon;
+                  return (
+                    <div key={sec.key} className="py-1">
+                      <div className="px-2 pb-1 text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-2">
+                        <Icon className="h-3.5 w-3.5" />
+                        {sec.label}
+                      </div>
+                      <ul className="max-h-56 overflow-y-auto">
+                        {arr.map((item, i) => {
+                          const active = (highlight.section === sIdx && highlight.index === i);
+                          return (
+                            <li
+                              key={item._id || item.username || item}
+                              className={cn(
+                                "flex items-center gap-3 px-2 py-2 rounded-lg cursor-pointer",
+                                active ? "bg-accent text-foreground" : "hover:bg-accent/60"
+                              )}
+                              onMouseEnter={() => setHighlight({ section: sIdx, index: i })}
+                              onMouseDown={(e) => { e.preventDefault(); }} // keep focus
+                              onClick={() => goToSuggestion(sec.key, item)}
+                            >
+                              {sec.key === 'users' && (
+                                <>
+                                  <Avatar className="h-7 w-7">
+                                    <AvatarImage src={item.avatarUrl} />
+                                    <AvatarFallback>{(item.username || item.name || "?").slice(0, 2).toUpperCase()}</AvatarFallback>
+                                  </Avatar>
+                                  <div className="min-w-0">
+                                    <div className="text-sm font-medium leading-5">@{item.username}</div>
+                                    {item.name && <div className="text-xs text-muted-foreground">{item.name}</div>}
+                                  </div>
+                                </>
+                              )}
+                              {sec.key === 'posts' && (
+                                <>
+                                  <FileText className="h-4 w-4 shrink-0" />
+                                  <div className="min-w-0">
+                                    <div className="text-sm line-clamp-1">{item.preview || (item.text || '').slice(0, 80)}</div>
+                                    <div className="text-xs text-muted-foreground">
+                                      by @{item.author?.username || 'user'} • {new Date(item.createdAt).toLocaleDateString()}
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+                              {sec.key === 'languages' && (
+                                <>
+                                  <Code2 className="h-4 w-4 shrink-0" />
+                                  <div className="text-sm">{item}</div>
+                                </>
+                              )}
+                              {sec.key === 'tags' && (
+                                <>
+                                  <Hash className="h-4 w-4 shrink-0" />
+                                  <div className="text-sm">{item}</div>
+                                </>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  );
+                })
               )}
-            />
-            {query && !searchLoading && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => setQuery("")}
-                aria-label="Clear search"
-                className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 hover:bg-accent/50"
-              >
-                ×
-              </Button>
-            )}
-          </div>
-        </form>
+              <div className="px-2 pt-1 pb-2 text-[11px] text-muted-foreground">
+                Press <kbd className="px-1 py-0.5 rounded bg-muted">↑</kbd>/<kbd className="px-1 py-0.5 rounded bg-muted">↓</kbd> to navigate, <kbd className="px-1 py-0.5 rounded bg-muted">Enter</kbd> to open.
+              </div>
+            </Card>
+          )}
+        </div>
 
         {/* Quick Actions */}
         <div className="flex items-center gap-2">
@@ -375,7 +617,6 @@ function EnhancedNotiBell() {
   );
 
   const handleOpen = (n) => {
-    // Shapes we might receive
     const postId = n.postId || n.post?._id || n.post || null;
     const convoId = n.conversationId || n.conversation?._id || n.conversation || null;
 
@@ -461,30 +702,18 @@ function NotificationItem({ notification, onOpen }) {
   })();
 
   const t = notification.type;
-  const kind = notification.meta?.kind;  // 'dm' | 'group'
-  const title = notification.meta?.title; // group title
+  const kind = notification.meta?.kind;
+  const title = notification.meta?.title;
   const preview = notification.meta?.preview;
 
   let actionText = "";
-  if (t === "like") {
-    actionText = "liked your post";
-  } else if (t === "comment") {
-    actionText = "commented on your post";
-  } else if (t === "chat:invite") {
-    actionText = `invited you to join${title ? ` “${title}”` : ""}`;
-  } else if (t === "chat:accept") {
-    actionText = `accepted your invite${title ? ` to “${title}”` : ""}`;
-  } else if (t === "chat:decline") {
-    actionText = `declined your invite${title ? ` to “${title}”` : ""}`;
-  } else if (t === "chat:message") {
-    if (kind === "group" && title) {
-      actionText = `messaged in “${title}”`;
-    } else {
-      actionText = "sent you a message";
-    }
-  } else {
-    actionText = "sent a notification";
-  }
+  if (t === "like") actionText = "liked your post";
+  else if (t === "comment") actionText = "commented on your post";
+  else if (t === "chat:invite") actionText = `invited you to join${title ? ` “${title}”` : ""}`;
+  else if (t === "chat:accept") actionText = `accepted your invite${title ? ` to “${title}”` : ""}`;
+  else if (t === "chat:decline") actionText = `declined your invite${title ? ` to “${title}”` : ""}`;
+  else if (t === "chat:message") actionText = (kind === "group" && title) ? `messaged in “${title}”` : "sent you a message";
+  else actionText = "sent a notification";
 
   return (
     <DropdownMenuItem
@@ -504,11 +733,9 @@ function NotificationItem({ notification, onOpen }) {
           <span className="font-medium">@{actor.username || "user"}</span>{" "}
           <span className="text-muted-foreground">{actionText}</span>
         </p>
-
         {t === "chat:message" && preview && (
           <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{preview}</p>
         )}
-
         <p className="text-xs text-muted-foreground mt-1">{whenStr}</p>
       </div>
     </DropdownMenuItem>
@@ -521,10 +748,9 @@ function applyTheme(mode) {
   const root = document.documentElement;
   root.classList.toggle("dark", mode === "dark");
 }
-
 function safeGetLocalTheme() {
   try { return localStorage.getItem("theme"); } catch { return null; }
 }
 function safeSetLocalTheme(t) {
-  try { localStorage.setItem("theme", t); } catch { }
+  try { localStorage.setItem("theme", t); } catch { /* ignore */ }
 }

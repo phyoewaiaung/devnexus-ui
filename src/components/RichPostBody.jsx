@@ -312,9 +312,9 @@ function processBlockFormatting(text) {
             );
         }
         // Empty lines
-        else {
-            processedLines.push(<br key={`br-${keyIndex++}`} />);
-        }
+        // else {
+        //     processedLines.push(<br key={`br-${keyIndex++}`} />);
+        // }
     }
 
     return processedLines;

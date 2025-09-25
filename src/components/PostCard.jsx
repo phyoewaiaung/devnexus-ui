@@ -27,7 +27,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 
 import {
   Heart, MessageSquare, Trash2, MoreHorizontal, Loader2, User as UserIcon,
-  Share2, Link as LinkIcon, CornerDownRight, PencilLine
+  Share2, Link as LinkIcon, CornerDownRight, PencilLine, Globe, Users
 } from 'lucide-react';
 
 // ✅ new reusable renderer
@@ -205,6 +205,21 @@ export default function PostCard({ post, onDeleted, postDetailStatus = false }) 
   const langBadges = useMemo(() => Array.isArray(post.languages) ? post.languages : [], [post.languages]);
   const tagBadges = useMemo(() => Array.isArray(post.tags) ? post.tags : [], [post.tags]);
 
+  const visibility = (post.visibility || 'public').toLowerCase();
+  const visIsFollowers = visibility === 'followers';
+  const visibilityBadge = visIsFollowers ? {
+    label: 'Followers only',
+    variant: 'secondary',
+    Icon: Users,
+    tooltip: 'Visible to followers of the author (and the author)',
+  } : {
+    label: 'Public',
+    variant: 'outline',
+    Icon: Globe,
+    tooltip: 'Visible to everyone',
+  };
+
+
   const like = useCallback(async () => {
     if (busyLike) return;
     if (!user) { toast('Please log in to like posts'); navigate('/login'); return; }
@@ -300,7 +315,21 @@ export default function PostCard({ post, onDeleted, postDetailStatus = false }) 
                     <Badge key={`tag-${t}`} className="ml-1">#{t}</Badge>
                   ))}
                 </div>
-                <div className="text-xs text-muted-foreground" title={createdAtTitle}>{createdAtLabel}</div>
+                <div className="text-xs text-muted-foreground flex items-center gap-2" title={createdAtTitle}>
+                  <span>{createdAtLabel}</span>
+
+                  {/* Visibility badge */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant={visibilityBadge.variant} className="inline-flex items-center gap-1">
+                        <visibilityBadge.Icon className="h-3.5 w-3.5" />
+                        {visibilityBadge.label}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>{visibilityBadge.tooltip}</TooltipContent>
+                  </Tooltip>
+                </div>
+
               </div>
             </div>
 

@@ -4,7 +4,30 @@ import { client } from "./client";
 
 const enc = encodeURIComponent;
 
+export async function uploadAttachments(files) {
+    const fd = new FormData();
+    files.forEach((f) => fd.append('files', f)); // field name 'files' matches backend
+    const { data } = await client.post('/api/chats/attachments', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        withCredentials: true,
+    });
+    return data;
+}
+
+// keep legacy single if you want
+export async function uploadAttachment(file) {
+    const fd = new FormData();
+    fd.append('file', file);
+    const { data } = await client.post('/api/chats/attachment', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        withCredentials: true,
+    });
+    return data;
+}
+
 export const ChatsAPI = {
+    uploadAttachments,
+    uploadAttachment,
     listConversations: () =>
         client.get("/api/chats/conversations").then((r) => r.data.conversations),
 

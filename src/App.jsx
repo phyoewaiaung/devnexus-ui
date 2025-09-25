@@ -79,7 +79,7 @@ function FeedShell() {
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <NavBar />
-      <main className="flex-1 container mx-auto max-w-2xl px-3 md:px-4 py-4 md:py-6 pb-[calc(5.25rem+env(safe-area-inset-bottom))] md:pb-6">
+      <main className="flex-1 container mx-auto max-w-3xl px-3 md:px-4 py-4 md:py-6 pb-[calc(5.25rem+env(safe-area-inset-bottom))] md:pb-6">
         <Outlet />
       </main>
       <MobileBottomNav />
@@ -92,7 +92,7 @@ function PageShell() {
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <NavBar />
-      <main className="flex-1 container mx-auto max-w-2xl px-3 md:px-4 py-4 md:py-6 pb-[calc(5.25rem+env(safe-area-inset-bottom))] md:pb-6">
+      <main className="flex-1 container mx-auto max-w-3xl px-3 md:px-4 py-4 md:py-6 pb-[calc(5.25rem+env(safe-area-inset-bottom))] md:pb-6">
         <Outlet />
       </main>
       <MobileBottomNav />

@@ -1,11 +1,12 @@
 import { client } from './client';
 
-export const createPost = ({ text, image, tags }) => {
+export const createPost = ({ text, image, tags, visibility }) => {
   const fd = new FormData();
   if (text) fd.append('text', text);
   if (image) fd.append('image', image);
   if (Array.isArray(tags)) fd.append('tags', tags.join(','));
   else if (typeof tags === 'string') fd.append('tags', tags);
+  if (visibility) fd.append('visibility', String(visibility).toLowerCase()); // 'public' | 'followers'
 
   return client
     .post('/api/posts', fd, {
@@ -14,6 +15,7 @@ export const createPost = ({ text, image, tags }) => {
     })
     .then(r => r.data); // { post }
 };
+
 
 export const deletePost = (id) =>
   client.delete(`/api/posts/${id}`).then(r => r.data);

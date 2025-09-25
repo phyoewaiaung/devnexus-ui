@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 import {
-  Image,
+  Image as ImageIcon,
   Loader2,
   SmilePlus,
   X,
@@ -45,7 +45,6 @@ const RECENT_KEY = 'dn_recent_emojis';
 const RECENT_MAX = 18;
 
 // A compact emoji dataset (curated for general-purpose posting).
-// Add/remove as you like — keeping it small avoids heavy deps.
 const EMOJI_SETS = [
   {
     name: 'Smileys',
@@ -110,6 +109,9 @@ export default function PostComposer({ onCreated }) {
   const [codeText, setCodeText] = useState('');
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [showCodePreview, setShowCodePreview] = useState(false);
+
+  // NEW: visibility state — 'public' | 'followers'
+  const [visibility, setVisibility] = useState('public');
 
   // Emoji picker state
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -198,7 +200,6 @@ export default function PostComposer({ onCreated }) {
 
   // ===== Emoji insertion =====
   const insertEmoji = (emoji) => {
-    // If currently previewing, switch to edit first
     if (isPreviewMode) setIsPreviewMode(false);
 
     const textarea = textareaRef.current;
@@ -216,7 +217,7 @@ export default function PostComposer({ onCreated }) {
       });
     }
 
-    // Update recents (LRU-ish)
+    // Update recents
     setRecentEmojis((prev) => {
       const next = [emoji, ...prev.filter((e) => e !== emoji)].slice(0, RECENT_MAX);
       saveRecentEmojis(next);
@@ -227,9 +228,6 @@ export default function PostComposer({ onCreated }) {
   const filteredEmojiSets = EMOJI_SETS.map((set) => {
     if (!emojiQuery.trim()) return set;
     const q = emojiQuery.trim().toLowerCase();
-    // crude "name" filter by Unicode name match is non-trivial w/o deps.
-    // Here we filter by a small hand-made alias map and include everything if query is too broad.
-    // For practical UX, also filter by common textual tags matched in names below:
     const TAGS = {
       Smileys: ['smile', 'happy', 'lol', 'joy', 'grin', 'wink', 'kiss', 'heart', 'sweat', 'sleep', 'cool', 'party', 'thinking'],
       Gestures: ['thumb', 'ok', 'v', 'hand', 'clap', 'pray', 'muscle', 'point', 'wave'],
@@ -237,11 +235,8 @@ export default function PostComposer({ onCreated }) {
       'Animals & Food': ['dog', 'cat', 'bear', 'panda', 'fox', 'lion', 'unicorn', 'bird', 'chick', 'fruit', 'pizza', 'burger', 'fries', 'taco', 'sushi', 'cake', 'cookie', 'coffee'],
       'Objects & Symbols': ['computer', 'laptop', 'keyboard', 'mouse', 'tool', 'rocket', 'pin', 'paper', 'book', 'note', 'chart', 'clock', 'calendar', 'lock', 'bell', 'recycle', 'check', 'cross', 'warning', 'question', 'exclamation'],
     };
-    // If some tags in this category include query, we keep the set; otherwise we filter per simple heuristic.
     const hitsTags = (TAGS[set.name] || []).some((t) => t.includes(q));
     if (hitsTags) return set;
-    // Otherwise, filter the emoji list lightly by fallback heuristic: keep all (avoids over-filtering without proper names).
-    // If you prefer stricter filtering, comment the next line and implement your own mapping.
     return { ...set, emojis: set.emojis.filter(() => true) };
   });
 
@@ -252,7 +247,11 @@ export default function PostComposer({ onCreated }) {
     setBusy(true);
 
     try {
-      const { post } = await createPost({ text: text.trim(), image: file || undefined });
+      const { post } = await createPost({
+        text: text.trim(),
+        image: file || undefined,
+        visibility, // NEW
+      });
       toast.success('Post created successfully');
 
       setText('');
@@ -269,10 +268,13 @@ export default function PostComposer({ onCreated }) {
     }
   }
 
+  const isFollowersOnly = visibility === 'followers';
+
   return (
     <Card className="w-full max-w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-sm">
-      <div
+      <form
         className="p-3 sm:p-4 space-y-3"
+        onSubmit={submit}
         onPaste={onPaste}
         onDragOver={(e) => e.preventDefault()}
         onDrop={onDrop}
@@ -309,6 +311,19 @@ export default function PostComposer({ onCreated }) {
                 {isPreviewMode ? <Edit3 className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 <span>{isPreviewMode ? 'Edit' : 'Preview'}</span>
               </Button>
+
+              {/* Visibility Toggle */}
+              <div className="ml-auto flex items-center gap-2 pl-2">
+                <Switch
+                  id="vis-switch"
+                  checked={isFollowersOnly}
+                  onCheckedChange={(v) => setVisibility(v ? 'followers' : 'public')}
+                  aria-label="Toggle followers-only visibility"
+                />
+                <Label htmlFor="vis-switch" className="text-xs sm:text-sm">
+                  {isFollowersOnly ? 'Followers only' : 'Public'}
+                </Label>
+              </div>
             </div>
 
             {/* Editor / Preview */}
@@ -373,7 +388,7 @@ export default function PostComposer({ onCreated }) {
                   onClick={pick}
                   className="gap-1.5 text-xs sm:text-sm"
                 >
-                  <Image className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                  <ImageIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                   <span>Photo</span>
                 </Button>
 
@@ -495,7 +510,7 @@ export default function PostComposer({ onCreated }) {
 
                     <ScrollArea className="h-[260px] pr-1">
                       <div className="space-y-3">
-                        {filteredEmojiSets.map((set) => (
+                        {EMOJI_SETS.map((set) => (
                           <div key={set.name}>
                             <div className="text-xs font-medium text-neutral-500 px-1 mb-1">{set.name}</div>
                             <div className="grid grid-cols-8 gap-1.5">
@@ -545,8 +560,7 @@ export default function PostComposer({ onCreated }) {
                   <Button
                     type="submit"
                     disabled={busy || (!text.trim() && !file)}
-                    className="min-w-[70px] sm:min-w-[80px] bg-blue-600 hover:bg-blue-700 text-xs sm:text-sm"
-                    onClick={submit}
+                    className="min-w-[70px] sm:min-w-[80px] bg-blue-600 dark:text-white hover:bg-blue-700 text-xs sm:text-sm"
                   >
                     {busy ? <Loader2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin mr-1.5" /> : null}
                     {busy ? 'Publishing…' : 'Post'}
@@ -560,7 +574,7 @@ export default function PostComposer({ onCreated }) {
             </p>
           </div>
         </div>
-      </div>
+      </form>
     </Card>
   );
 }

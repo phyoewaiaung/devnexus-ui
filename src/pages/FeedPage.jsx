@@ -114,6 +114,7 @@ export default function FeedPage() {
     setPosts((prev) => [
       {
         ...newPost,
+        visibility: newPost.visibility || 'public',
         author: {
           _id: user._id,
           name: user.name,
@@ -133,9 +134,10 @@ export default function FeedPage() {
     window.setTimeout(() => setShowNewChip(false), 1800);
   };
 
+
   const Header = (
     <div className="border-b bg-background">
-      <div className="max-w-2xl mx-auto px-3 sm:px-4">
+      <div className="max-w-4xl mx-auto px-3 sm:px-4">
         <div className="flex items-center justify-between h-12 sm:h-14">
           <div className="flex items-center gap-2">
             <Home className="w-5 h-5 text-[#3C81D2]" aria-hidden />
@@ -221,7 +223,7 @@ export default function FeedPage() {
 
       {Header}
 
-      <div className="max-w-2xl mx-auto px-3 sm:px-4 py-3 sm:py-4 space-y-3 sm:space-y-4">
+      <div className="max-w-3xl mx-auto px-3 sm:px-4 py-3 sm:py-4 space-y-3 sm:space-y-4">
         {user && <PostComposer onCreated={handlePostCreated} />}
 
         {user && posts.length === 0 && !initialLoading && !error && (
