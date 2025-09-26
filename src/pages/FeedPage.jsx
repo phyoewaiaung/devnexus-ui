@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 
 import {
   Loader2, RefreshCw, AlertCircle, Users, TrendingUp, Home,
-  MessageCircle, Heart, Share2, ArrowUp, WifiOff
+  ArrowUp, WifiOff
 } from 'lucide-react';
 
 export default function FeedPage() {
@@ -55,6 +55,7 @@ export default function FeedPage() {
         const withPermissions = newPosts.map((p) => ({
           ...p,
           canDelete: user && p.author?._id === user._id,
+          repostCount: typeof p.repostCount === 'number' ? p.repostCount : 0,
         }));
         if (opts.isRefresh || pageNum === 1) {
           setPosts(withPermissions);
@@ -127,6 +128,7 @@ export default function FeedPage() {
         comments: [],
         likesCount: 0,
         commentsCount: 0,
+        repostCount: 0,
       },
       ...prev,
     ]);
@@ -134,6 +136,24 @@ export default function FeedPage() {
     window.setTimeout(() => setShowNewChip(false), 1800);
   };
 
+  // When a repost is created from a PostCard dialog
+  const handleReposted = (createdRepost) => {
+    if (!createdRepost) return;
+    // Prepend the new repost
+    setPosts((prev) => [createdRepost, ...prev]);
+    setShowNewChip(true);
+    window.setTimeout(() => setShowNewChip(false), 1200);
+
+    // Optionally bump the original's counter if it's in the current list
+    const originalId = createdRepost?.repostOf?._id;
+    if (originalId) {
+      setPosts((prev) =>
+        prev.map((p) =>
+          p._id === originalId ? { ...p, repostCount: (p.repostCount || 0) + 1 } : p
+        )
+      );
+    }
+  };
 
   const Header = (
     <div className="border-b bg-background">
@@ -210,11 +230,6 @@ export default function FeedPage() {
     );
   }
 
-  // const totals = useMemo(() => ({
-  //   comments: posts.reduce((acc, p) => acc + (p.commentsCount || p.comments?.length || 0), 0),
-  //   likes: posts.reduce((acc, p) => acc + (p.likesCount || 0), 0),
-  // }), [posts]);
-
   return (
     <div className="min-h-screen bg-background">
       <div className="sr-only" aria-live="polite" aria-atomic="true">
@@ -247,7 +262,11 @@ export default function FeedPage() {
           <div className="space-y-4">
             {posts.map((post, index) => (
               <div key={post._id} ref={index === posts.length - 1 ? lastPostElementRef : null}>
-                <PostCard post={post} onDeleted={(id) => setPosts((prev) => prev.filter((p) => p._id === id ? false : true))} />
+                <PostCard
+                  post={post}
+                  onDeleted={(id) => setPosts((prev) => prev.filter((p) => p._id !== id))}
+                  onReposted={handleReposted}
+                />
               </div>
             ))}
           </div>
@@ -275,16 +294,6 @@ export default function FeedPage() {
           </Alert>
         )}
       </div>
-
-      {/* {user && posts.length > 5 && (
-        <Card className="fixed bottom-4 right-4 hidden lg:block p-3 shadow-lg bg-white/90 backdrop-blur-sm">
-          <div className="flex items-center gap-4 text-sm text-foreground">
-            <div className="flex items-center gap-1"><MessageCircle className="w-4 h-4" aria-hidden /><span>{totals.comments}</span></div>
-            <div className="flex items-center gap-1"><Heart className="w-4 h-4" aria-hidden /><span>{totals.likes}</span></div>
-            <div className="flex items-center gap-1"><Share2 className="w-4 h-4" aria-hidden /><span>{posts.length}</span></div>
-          </div>
-        </Card>
-      )} */}
 
       {showBackToTop && (
         <Button

@@ -16,10 +16,16 @@ import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import {
     ArrowLeft, Send, Users2, UserPlus, Loader2,
-    Search as SearchIcon, ChevronDown, X, Code2, Eye, Edit3, Image as ImageIcon
+    Search as SearchIcon, ChevronDown, X, Code2, Eye, Edit3, Image as ImageIcon,
+    Trash2, LogOut, ShieldAlert
 } from 'lucide-react';
 import { useNotifications } from '@/providers/NotificationsProvider';
 import RichPostBody from '@/components/RichPostBody';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+    AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+    AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction
+} from '@/components/ui/alert-dialog';
 
 /** ---------- tiny helpers ---------- */
 const nameOf = (u) => u?.name || u?.username || 'Unknown';
@@ -95,7 +101,7 @@ function Bubble({ mine, msg, author, showAuthor }) {
                 {showAuthor && !mine && <div className="text-xs font-medium mb-1 text-foreground/80">{nameOf(author)}</div>}
                 {msg.text && (
                     <div className={`whitespace-pre-wrap break-words ${mine ? '[&_code]:bg-white/10' : ''}`}>
-                        <RichPostBody raw={msg.text} />
+                        <RichPostBody raw={msg.text} mine={mine} />
                     </div>
                 )}
                 {images.map((img, idx) => (
@@ -171,6 +177,10 @@ export default function ConversationPage() {
 
     const [memberQuery, setMemberQuery] = useState('');
 
+    // NEW: confirm dialogs
+    const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
+    const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+
     const typingTimer = useRef(null);
     const scrollerRef = useRef(null);
 
@@ -202,6 +212,12 @@ export default function ConversationPage() {
 
     const isGroup = !!conversation?.isGroup;
     const title = isGroup ? (conversation?.title || 'Group') : (otherUsers[0]?.name || otherUsers[0]?.username || 'Conversation');
+
+    // NEW: my role (for group controls)
+    const myRole = useMemo(() => {
+        const meP = (participants || []).find((p) => String(p.user?._id || p.user) === String(user?._id));
+        return (meP?.role || 'member').toLowerCase();
+    }, [participants, user?._id]);
 
     const fetchConversation = useCallback(async () => {
         try {
@@ -452,6 +468,7 @@ export default function ConversationPage() {
     useEffect(() => {
         const el = scrollerRef.current; if (!el) return;
         const newCount = messages.length - lastCountRef.current;
+        lastCountRef.last = messages.length;
         lastCountRef.current = messages.length;
         if (newCount <= 0) return;
 
@@ -495,6 +512,26 @@ export default function ConversationPage() {
         setMembersOpen(false);
     }, [navigate]);
 
+    // --- NEW: action handlers
+    const leaveGroup = async () => {
+        try {
+            await ChatsAPI.leaveConversation(chatId);
+            toast.success('You left the group');
+            navigate('/chats');
+        } catch (e) {
+            toast.error(e?.message || 'Failed to leave group');
+        }
+    };
+    const deleteConversation = async () => {
+        try {
+            await ChatsAPI.deleteConversation(chatId);
+            toast.success(isGroup ? 'Group deleted' : 'Chat deleted');
+            navigate('/chats');
+        } catch (e) {
+            toast.error(e?.message || 'Failed to delete');
+        }
+    };
+
     // ------ RENDER ------
     return (
         <div className="h-[88svh] max-h-[88svh] overflow-hidden bg-background flex flex-col">
@@ -535,6 +572,48 @@ export default function ConversationPage() {
                                 </Button>
                             </>
                         )}
+
+                        {/* NEW: destructive actions */}
+                        {!invited && (
+                            <>
+                                {!isGroup && (
+                                    <Button
+                                        size="sm"
+                                        variant="destructive"
+                                        className="gap-1"
+                                        onClick={() => setConfirmDeleteOpen(true)}
+                                        aria-label="Delete chat"
+                                    >
+                                        <Trash2 className="h-4 w-4" /> Delete
+                                    </Button>
+                                )}
+
+                                {isGroup && myRole !== 'owner' && (
+                                    <Button
+                                        size="sm"
+                                        variant="destructive"
+                                        className="gap-1"
+                                        onClick={() => setConfirmLeaveOpen(true)}
+                                        aria-label="Leave group"
+                                    >
+                                        <LogOut className="h-4 w-4" /> Leave
+                                    </Button>
+                                )}
+
+                                {isGroup && myRole === 'owner' && (
+                                    <Button
+                                        size="sm"
+                                        variant="destructive"
+                                        className="gap-1"
+                                        onClick={() => setConfirmDeleteOpen(true)}
+                                        aria-label="Delete group"
+                                    >
+                                        <ShieldAlert className="h-4 w-4" /> Delete group
+                                    </Button>
+                                )}
+                            </>
+                        )}
+
                         {invited && (
                             <div className="flex items-center gap-2">
                                 <Button size="sm" variant="secondary" onClick={accept}>Accept</Button>
@@ -611,16 +690,52 @@ export default function ConversationPage() {
                 </Card>
             </div>
 
-            {/* Compact composer */}
-            <div className="sticky bottom-0 z-10 bg-background border-t">
+            {/* Composer */}
+            <div className="sticky bottom-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t">
                 <div className="max-w-3xl mx-auto px-3 sm:px-4 py-2">
-                    <Card className="p-2">
-                        {/* Toolbar (compact) */}
-                        <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-1.5">
-                                <Button variant="outline" size="sm" type="button" onClick={() => fileRef.current?.click()} className="gap-1.5">
-                                    <ImageIcon className="h-4 w-4" /> Photos
-                                </Button>
+                    <Card className="relative p-2 py-4">
+
+                        {/* Typing indicator (TOP) */}
+                        <div className="absolute top-0 px-2 text-[11px] text-muted-foreground flex items-center overflow-hidden">
+                            {typingText ? (
+                                <div className="inline-flex items-center gap-1">
+                                    <span className="truncate max-w-[220px] sm:max-w-[360px]">{typingText}</span>
+                                    <span className="inline-flex">
+                                        <span className="inline-block w-1 h-1 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:0ms]" />
+                                        <span className="inline-block w-1 h-1 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:120ms] mx-1" />
+                                        <span className="inline-block w-1 h-1 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:240ms]" />
+                                    </span>
+                                </div>
+                            ) : null}
+                        </div>
+
+                        {/* One-row composer */}
+                        <div
+                            className="mt-1 flex items-end gap-2"
+                            onPaste={onPaste}
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={onDrop}
+                        >
+                            {/* Left tools */}
+                            <div className="flex items-center gap-1.5 pb-0.5">
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                size="icon"
+                                                type="button"
+                                                onClick={() => fileRef.current?.click()}
+                                                aria-label="Add photos"
+                                                className="shrink-0"
+                                            >
+                                                <ImageIcon className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top" align="center">Photos</TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+
                                 <input
                                     ref={fileRef}
                                     type="file"
@@ -629,54 +744,92 @@ export default function ConversationPage() {
                                     className="hidden"
                                     onChange={(e) => acceptFiles(e.target.files)}
                                 />
-                                <Button variant="outline" size="sm" type="button" className="gap-1.5" onClick={() => setCodeOpen(true)}>
-                                    <Code2 className="h-4 w-4" /> Code
-                                </Button>
+
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                size="icon"
+                                                type="button"
+                                                onClick={() => setCodeOpen(true)}
+                                                aria-label="Insert code"
+                                                className="shrink-0"
+                                            >
+                                                <Code2 className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top" align="center">Code</TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                variant={isPreviewMode ? 'default' : 'outline'}
+                                                size="icon"
+                                                type="button"
+                                                onClick={() => setIsPreviewMode((v) => !v)}
+                                                className="shrink-0"
+                                                aria-label={isPreviewMode ? 'Edit' : 'Preview'}
+                                            >
+                                                {isPreviewMode ? <Edit3 className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top" align="center">
+                                            {isPreviewMode ? 'Edit' : 'Preview'}
+                                        </TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
                             </div>
 
-                            <Button
-                                variant={isPreviewMode ? 'default' : 'outline'}
-                                size="icon"
-                                type="button"
-                                onClick={() => setIsPreviewMode((v) => !v)}
-                                className="shrink-0"
-                                aria-label={isPreviewMode ? 'Edit' : 'Preview'}
-                                title={isPreviewMode ? 'Edit' : 'Preview'}
-                            >
-                                {isPreviewMode ? <Edit3 className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                            </Button>
-                        </div>
-
-                        {/* Textarea / Preview (compact height) */}
-                        <div onPaste={onPaste} onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
+                            {/* Textarea */}
                             {isPreviewMode ? (
-                                <div className="min-h-[38px] whitespace-pre-wrap py-2 text-sm">
-                                    {text.trim() ? <RichPostBody raw={text} /> : <span className="text-muted-foreground">Nothing to preview…</span>}
+                                <div className="flex-1 min-h-[38px] max-h-36 whitespace-pre-wrap py-2 px-3 text-sm border rounded-md bg-background">
+                                    {text.trim() ? (
+                                        <RichPostBody raw={text} />
+                                    ) : (
+                                        <span className="text-muted-foreground">Nothing to preview…</span>
+                                    )}
                                 </div>
                             ) : (
-                                <div className="flex items-end gap-2">
-                                    <Textarea
-                                        value={text}
-                                        onChange={(e) => onTextChange(e.target.value)}
-                                        placeholder={invited ? 'Accept the invite to send…' : 'Write a message…'}
-                                        className="min-h-[38px] max-h-36 text-sm resize-none"
-                                        disabled={invited}
-                                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendNow(); } }}
-                                    />
-                                    <Button
-                                        onClick={sendNow}
-                                        size="sm"
-                                        className="shrink-0"
-                                        disabled={invited || sending || (!text.trim() && files.length === 0)}
-                                        aria-label="Send"
-                                    >
-                                        {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                                    </Button>
-                                </div>
+                                <Textarea
+                                    value={text}
+                                    onChange={(e) => onTextChange(e.target.value)}
+                                    placeholder={invited ? 'Accept the invite to send…' : 'Write a message…'}
+                                    className="flex-1 min-h-[38px] max-h-36 text-sm resize-none"
+                                    disabled={invited}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault();
+                                            sendNow();
+                                        }
+                                    }}
+                                />
                             )}
+
+                            {/* Send */}
+                            <div className="flex items-center gap-1.5 pb-0.5">
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                onClick={sendNow}
+                                                size="sm"
+                                                className="shrink-0"
+                                                disabled={invited || sending || (!text.trim() && files.length === 0)}
+                                                aria-label="Send"
+                                            >
+                                                {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top" align="center">Send</TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            </div>
                         </div>
 
-                        {/* Attachment chips (local previews) */}
+                        {/* Attachments previews */}
                         {files.length > 0 && (
                             <div className="mt-2 flex flex-wrap gap-2">
                                 {files.map((f, i) => (
@@ -694,9 +847,6 @@ export default function ConversationPage() {
                                 ))}
                             </div>
                         )}
-
-                        {/* Typing indicator line (fixed height) */}
-                        <div className="mt-1 px-1 min-h-4 text-[11px] text-muted-foreground">{typingText}</div>
                     </Card>
                 </div>
             </div>
@@ -816,7 +966,13 @@ export default function ConversationPage() {
 
                     <DialogFooter>
                         <Button variant="ghost" onClick={() => setInviteOpen(false)}>Cancel</Button>
-                        <Button onClick={sendInvites} disabled={inviteSelected.length === 0} className="gap-2">
+                        <Button onClick={() => {
+                            const ids = inviteSelected.map((u) => u._id);
+                            ChatsAPI.invite(chatId, ids).then(() => {
+                                toast.success('Invites sent');
+                                setInviteSelected([]); setInviteQuery(''); setInviteOpen(false);
+                            }).catch((e) => toast.error(e?.message || 'Failed to invite'));
+                        }} disabled={inviteSelected.length === 0} className="gap-2">
                             <UserPlus className="h-4 w-4" /> Invite
                         </Button>
                     </DialogFooter>
@@ -863,6 +1019,44 @@ export default function ConversationPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* NEW: Confirm Leave */}
+            <AlertDialog open={confirmLeaveOpen} onOpenChange={setConfirmLeaveOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Leave this group?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            You will no longer receive messages from this group. You can be re-invited later.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={leaveGroup}>
+                            Leave
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* NEW: Confirm Delete (DM or Group owner) */}
+            <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>{isGroup ? 'Delete this group?' : 'Delete this chat?'}</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {isGroup
+                                ? 'This will permanently delete the group and all its messages for everyone.'
+                                : 'This will permanently delete the conversation and messages for both participants.'}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={deleteConversation}>
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

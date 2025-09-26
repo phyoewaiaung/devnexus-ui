@@ -26,6 +26,16 @@ export async function uploadAttachment(file) {
 }
 
 export const ChatsAPI = {
+
+    async leaveConversation(id) {
+        const { data } = await client.post(`/api/chats/conversations/${id}/leave`);
+        return data;
+    },
+
+    async deleteConversation(id) {
+        const { data } = await client.delete(`/api/chats/conversations/${id}`);
+        return data;
+    },
     uploadAttachments,
     uploadAttachment,
     listConversations: () =>

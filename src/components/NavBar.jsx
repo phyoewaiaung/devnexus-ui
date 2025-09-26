@@ -581,12 +581,12 @@ function EnhancedUserMenu({ user, onLogout }) {
           </Link>
         </DropdownMenuItem>
 
-        <DropdownMenuItem asChild className="gap-3">
+        {/* <DropdownMenuItem asChild className="gap-3">
           <Link to="/settings">
             <Settings className="h-4 w-4" />
             Settings
           </Link>
-        </DropdownMenuItem>
+        </DropdownMenuItem> */}
 
         <DropdownMenuSeparator />
 

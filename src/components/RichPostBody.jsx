@@ -248,7 +248,7 @@ function processInlineFormatting(text) {
 }
 
 /* ---------------------- Block-level Markdown Processing ---------------------- */
-function processBlockFormatting(text) {
+function processBlockFormatting(text, mine) {
     if (!text) return null;
 
     const lines = text.split('\n');
@@ -306,7 +306,7 @@ function processBlockFormatting(text) {
         // Regular paragraphs
         else if (trimmedLine) {
             processedLines.push(
-                <p key={`p-${keyIndex++}`} className="leading-relaxed text-gray-800 dark:text-gray-200 mb-2">
+                <p key={`p-${keyIndex++}`} className={`leading-relaxed ${mine ? 'text-white dark:text-gray-200' : 'text-gray-800 dark:text-gray-200'}  mb-2`}>
                     {processInlineFormatting(line)}
                 </p>
             );
@@ -321,7 +321,7 @@ function processBlockFormatting(text) {
 }
 
 /* ---------------------- Main Rich Post Body Component ---------------------- */
-export default function RichPostBody({ raw }) {
+export default function RichPostBody({ raw, mine }) {
     if (!raw) return null;
 
     // Normalize line endings
@@ -377,7 +377,7 @@ export default function RichPostBody({ raw }) {
                 } else {
                     return (
                         <div key={index} className="space-y-2">
-                            {processBlockFormatting(part.value)}
+                            {processBlockFormatting(part.value, mine)}
                         </div>
                     );
                 }

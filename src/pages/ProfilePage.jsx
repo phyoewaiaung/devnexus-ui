@@ -1,4 +1,4 @@
-// src/pages/ProfilePage.jsx — Polished shadcn UI/UX with cover upload + chat-ready + realtime presence
+// src/pages/ProfilePage.jsx — Polished shadcn UI/UX with cover upload + DM jump + realtime presence
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -43,13 +43,16 @@ import {
 // toast
 import { toast } from 'sonner';
 
-// ✅ use the provider that emits online:users, presence:user:online/offline
+// presence
 import { useNotifications } from '@/providers/NotificationsProvider';
+
+// ✅ align with ChatsPage: use the same API wrapper
+import { ChatsAPI } from '@/api/chat';
 
 export default function ProfilePage() {
   const { username } = useParams();
   const { user: me } = useAuth();
-  const { isOnline } = useNotifications(); // ✅ presence from provider
+  const { isOnline } = useNotifications();
   const navigate = useNavigate();
 
   const [profile, setProfile] = useState(null);
@@ -140,15 +143,23 @@ export default function ProfilePage() {
     );
   };
 
-  // 🟢 Quick DM from profile
+  // 🟢 Quick DM: uses ChatsAPI.startDM to match ChatsPage
+  const [startingChat, setStartingChat] = useState(false);
   const startChat = async () => {
     try {
-      if (!profile?._id) return;
-      if (isMe) return; // no-op: can't DM yourself (optional)
-      // const conv = await startDM(profile._id);
-      // navigate(`/chats/${conv._id}`);
+      if (!profile?._id || isMe || startingChat) return;
+      setStartingChat(true);
+
+      // If a DM already exists, most backends return that; otherwise a new one is created.
+      const convo = await ChatsAPI.startDM(profile._id, { initialMessage: '' });
+      const convoId = convo?._id || convo?.id || convo?.conversationId;
+      if (!convoId) throw new Error('Conversation not found');
+
+      navigate(`/chats/${convoId}`);
     } catch (e) {
       toast.error(e.message || 'Failed to start chat');
+    } finally {
+      setStartingChat(false);
     }
   };
 
@@ -184,6 +195,7 @@ export default function ProfilePage() {
         }
         onStartChat={startChat}
         isOnline={online}
+        startingChat={startingChat}
       />
 
       <Tabs defaultValue="posts" className="w-full">
@@ -228,6 +240,7 @@ function ProfileHeader({
   onCoverChange,
   onStartChat,
   isOnline,
+  startingChat = false,
 }) {
   const [uploading, setUploading] = useState(false);
   const [pending, setPending] = useState(false);
@@ -370,7 +383,6 @@ function ProfileHeader({
             </div>
 
             <div className="mt-1 text-xs text-muted-foreground">
-              roles: {(profile.roles || []).join(', ') || 'user'}
               {!isMe && (
                 <span className="ml-2">
                   • {isOnline ? <span className="text-emerald-600">Online</span> : 'Offline'}
@@ -400,15 +412,17 @@ function ProfileHeader({
                 {following ? 'Following' : 'Follow'}
               </Button>
 
-              {/* 💬 Start chat */}
+              {/* 💬 Start chat (DM) */}
               <Button
                 size="sm"
                 variant="outline"
                 onClick={onStartChat}
-                className="min-w-[96px]"
+                className="min-w-[120px]"
+                disabled={startingChat}
+                aria-busy={startingChat}
               >
                 <MessageSquare className="mr-2 h-4 w-4" />
-                Message
+                {startingChat ? 'Opening…' : 'Message'}
               </Button>
             </div>
           )}
@@ -423,7 +437,9 @@ function ProfileHeader({
         {Array.isArray(profile.skills) && profile.skills.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
             {profile.skills.map((s, i) => (
-              <Badge key={`${s}-${i}`} variant="secondary" className="font-normal">{s}</Badge>
+              <Badge key={`${s}-${i}`} variant="secondary" className="font-normal">
+                {s}
+              </Badge>
             ))}
           </div>
         )}
@@ -471,7 +487,7 @@ function ProfileHeader({
   );
 }
 
-// --- keep existing AboutCard & skeletons (unchanged) ---
+// --- About & skeletons (unchanged) ---
 function InfoField({ label, children }) {
   return (
     <div>

@@ -28,6 +28,7 @@ import PostDetail from "./pages/PostDetail";
 import ChatsPage from "./pages/ChatsPage";
 import { useNotifications } from "./providers/NotificationsProvider";
 import ConversationPage from "./pages/ConversationPage";
+import CreatePostPage from "./pages/CreatePostPage";
 
 export default function App() {
   const navigate = useNavigate();
@@ -61,6 +62,7 @@ export default function App() {
               <Route path="/settings/profile" element={<EditProfilePage />} />
               <Route path="/chats" element={<ChatsPage />} />
               <Route path="/chats/:id" element={<ConversationPage />} />
+              <Route path="/create" element={<CreatePostPage />} />
             </Route>
 
             {/* 404 (protected by default; move it outside if you want public 404) */}

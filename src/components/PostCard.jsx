@@ -5,7 +5,7 @@ import copy from 'copy-to-clipboard';
 import { toast } from 'sonner';
 
 import { useAuth } from '@/context/AuthContext';
-import { toggleLike, addComment, deletePost } from '../api/posts';
+import { toggleLike, addComment, deletePost, repost as repostApi } from '@/api/posts';
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -30,7 +30,7 @@ import {
   Share2, Link as LinkIcon, CornerDownRight, PencilLine, Globe, Users
 } from 'lucide-react';
 
-// ✅ new reusable renderer
+// Reusable rich text renderer
 import RichPostBody from '@/components/RichPostBody';
 
 /* ---------------------- utils ---------------------- */
@@ -93,7 +93,6 @@ function CommentItem({ comment, level = 0, onReply }) {
           </form>
         )}
 
-        {/* children */}
         {Array.isArray(comment.replies) && comment.replies.length > 0 && (
           <ul className="mt-3 ml-6 space-y-3">
             {comment.replies.map((child) => (
@@ -107,7 +106,6 @@ function CommentItem({ comment, level = 0, onReply }) {
 }
 
 function buildThread(flat = []) {
-  // Build a nested tree from flat comments [{_id, parentId, ...}]
   const byId = new Map();
   flat.forEach((c) => byId.set(c._id, { ...c, replies: [] }));
   const roots = [];
@@ -166,16 +164,22 @@ function CommentThread({ comments, onAdd, focusRef }) {
 }
 
 /* ---------------------- PostCard ---------------------- */
-export default function PostCard({ post, onDeleted, postDetailStatus = false }) {
+export default function PostCard({ post, onDeleted, onReposted, postDetailStatus = false }) {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  // likes (controlled from prop but synced internal)
+  // likes
   const initialLikes = post.likesCount ?? (Array.isArray(post.likes) ? post.likes.length : 0) ?? 0;
   const initialLiked = Boolean(post.likedByMe ?? (Array.isArray(post.likes) && user?._id ? post.likes.includes(user._id) : false));
-
   const [likes, setLikes] = useState(initialLikes);
   const [liked, setLiked] = useState(initialLiked);
+
+  // reposts
+  const [repostCount, setRepostCount] = useState(typeof post.repostCount === 'number' ? post.repostCount : 0);
+  const [repostOpen, setRepostOpen] = useState(false);
+  const [repostText, setRepostText] = useState('');
+  const [busyRepost, setBusyRepost] = useState(false);
+
   const [err, setErr] = useState('');
   const [busyLike, setBusyLike] = useState(false);
   const [busyDelete, setBusyDelete] = useState(false);
@@ -187,11 +191,11 @@ export default function PostCard({ post, onDeleted, postDetailStatus = false }) 
   const commentInputRef = useRef(null);
   const cardRef = useRef(null);
 
-  // Sync if parent updates the post reference
   useEffect(() => {
     setLikes(post.likesCount ?? (Array.isArray(post.likes) ? post.likes.length : 0) ?? 0);
     setLiked(Boolean(post.likedByMe ?? (Array.isArray(post.likes) && user?._id ? post.likes.includes(user._id) : false)));
     setComments(post.comments || []);
+    setRepostCount(typeof post.repostCount === 'number' ? post.repostCount : 0);
   }, [post, user?._id]);
 
   const safeUsername = post.author?.username || 'unknown';
@@ -218,7 +222,6 @@ export default function PostCard({ post, onDeleted, postDetailStatus = false }) 
     Icon: Globe,
     tooltip: 'Visible to everyone',
   };
-
 
   const like = useCallback(async () => {
     if (busyLike) return;
@@ -262,7 +265,6 @@ export default function PostCard({ post, onDeleted, postDetailStatus = false }) 
     setComments((c) => [...c, optimistic]);
     try {
       const r = await addComment(post._id, text.trim(), parentId || undefined);
-      // Expect API to return the whole updated flat list
       setComments(Array.isArray(r?.comments) ? r.comments : (prev) => prev);
     } catch (e) {
       toast.error(e?.message || 'Failed to add comment');
@@ -286,14 +288,34 @@ export default function PostCard({ post, onDeleted, postDetailStatus = false }) 
 
   const focusComment = () => {
     commentInputRef.current?.focus();
-    // try to scroll into view nicely
     commentInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  const doRepost = async () => {
+    if (busyRepost) return;
+    if (!user) { toast('Please log in to repost'); navigate('/login'); return; }
+    try {
+      setBusyRepost(true);
+      // optimistic bump
+      setRepostCount((n) => n + 1);
+      const { post: created } = await repostApi(post._id, { text: repostText });
+      setRepostOpen(false);
+      setRepostText('');
+      toast.success('Reposted');
+      if (typeof onReposted === 'function') onReposted(created);
+    } catch (e) {
+      // rollback optimistic if failed
+      setRepostCount((n) => Math.max(0, n - 1));
+      toast.error(e?.message || 'Failed to repost');
+    } finally {
+      setBusyRepost(false);
+    }
   };
 
   const commentsCount = (post.commentsCount ?? comments?.length) || 0;
 
   return (
-    <Card ref={cardRef} tabIndex={0} onKeyDown={onCardKeyDown} className="bg-card text-card-foreground border-border shadow-sm hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-primary/40">
+    <Card ref={cardRef} tabIndex={0} onKeyDown={onCardKeyDown} className="bg-card gap-0 text-card-foreground border-border shadow-sm hover:shadow-md transition-shadow focus:outline-none focus:ring-2 focus:ring-primary/40">
       <TooltipProvider>
         <CardHeader className="p-4 pb-0">
           <div className="flex items-start justify-between">
@@ -307,7 +329,6 @@ export default function PostCard({ post, onDeleted, postDetailStatus = false }) 
                   <Link to={`/u/${safeUsername}`} className="font-semibold hover:underline truncate" title={`${safeName} @${safeUsername}`}>{safeName}</Link>
                   <span className="text-muted-foreground truncate">@{safeUsername}</span>
 
-                  {/* languages and tags */}
                   {langBadges.map((l) => (
                     <Badge key={`lang-${l}`} variant="secondary" className="ml-1">{l}</Badge>
                   ))}
@@ -318,7 +339,6 @@ export default function PostCard({ post, onDeleted, postDetailStatus = false }) 
                 <div className="text-xs text-muted-foreground flex items-center gap-2" title={createdAtTitle}>
                   <span>{createdAtLabel}</span>
 
-                  {/* Visibility badge */}
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Badge variant={visibilityBadge.variant} className="inline-flex items-center gap-1">
@@ -377,81 +397,157 @@ export default function PostCard({ post, onDeleted, postDetailStatus = false }) 
         </CardHeader>
 
         <CardContent className="p-4 pt-3" onDoubleClick={like}>
-          {post.text && (
-            <PostText text={post.text} expanded={expanded} onToggle={() => setExpanded((v) => !v)} />
-          )}
+          {/* If this post is a repost with optional quote text, show quote first then embed original */}
+          {post.repostOf ? (
+            <>
+              {/* Optional quote (this post's text) */}
+              {post.text ? (
+                <div className="mb-3">
+                  <PostText text={post.text} expanded={expanded} onToggle={() => setExpanded((v) => !v)} />
+                </div>
+              ) : null}
 
-          {imageUrl && (
-            <div className="mt-3 overflow-hidden rounded-lg border border-border">
-              <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
-                <DialogTrigger asChild>
-                  <img src={imageUrl} alt="Post media" className="w-full h-auto object-cover cursor-zoom-in" loading="lazy" />
-                </DialogTrigger>
-                <DialogContent className="max-w-4xl p-0">
-                  <DialogHeader className="px-4 py-2"><DialogTitle>Media</DialogTitle></DialogHeader>
-                  <img src={imageUrl} alt="Post media large" className="w-full h-auto object-contain" />
-                </DialogContent>
-              </Dialog>
-            </div>
+              {/* Embedded original */}
+              <div className="rounded-lg border bg-muted/40">
+                <div className="px-3 py-2 text-xs text-muted-foreground">
+                  Reposted from{' '}
+                  <Link to={`/u/${post.repostOf?.author?.username}`} className="underline">
+                    @{post.repostOf?.author?.username}
+                  </Link>
+                </div>
+                <div className="px-3 pb-3">
+                  {post.repostOf?.text ? (
+                    <div className="whitespace-pre-wrap text-sm">
+                      <RichPostBody raw={post.repostOf.text} />
+                    </div>
+                  ) : null}
+                  {post.repostOf?.image?.url ? (
+                    <div className="mt-2 overflow-hidden rounded-md border">
+                      <img
+                        src={post.repostOf.image.url}
+                        alt="Original media"
+                        className="w-full h-auto object-cover"
+                        loading="lazy"
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              {post.text && (
+                <PostText text={post.text} expanded={expanded} onToggle={() => setExpanded((v) => !v)} />
+              )}
+              {imageUrl && (
+                <div className="mt-3 overflow-hidden rounded-lg border border-border">
+                  <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
+                    <DialogTrigger asChild>
+                      <img src={imageUrl} alt="Post media" className="w-full h-auto object-cover cursor-zoom-in" loading="lazy" />
+                    </DialogTrigger>
+                    <DialogContent className="max-w-4xl p-0">
+                      <DialogHeader className="px-4 py-2"><DialogTitle>Media</DialogTitle></DialogHeader>
+                      <img src={imageUrl} alt="Post media large" className="w-full h-auto object-contain" />
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              )}
+            </>
           )}
 
           {/* stats row */}
           <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
-            <div className="flex items-center gap-1">
-              <span className="relative inline-flex items-center">
-                <Heart
-                  className={clsx('h-4 w-4 transition-transform', liked ? 'text-red-600 scale-110' : undefined)}
-                  fill={liked ? 'currentColor' : 'none'}
-                  stroke={liked ? 'none' : 'currentColor'}
-                />
-                {liked && (
-                  <span className="absolute -inset-1 animate-ping rounded-full" aria-hidden />
-                )}
-              </span>
-              <span>{k(likes)}</span>
-            </div>
-            {commentsCount > 0 && (
-              <div className="flex items-center gap-3">
-                <span>{k(commentsCount)} comments</span>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-1">
+                <span className="relative inline-flex items-center">
+                  <Heart
+                    className={clsx('h-4 w-4 transition-transform', liked ? 'text-red-600 scale-110' : undefined)}
+                    fill={liked ? 'currentColor' : 'none'}
+                    stroke={liked ? 'none' : 'currentColor'}
+                  />
+                  {liked && (<span className="absolute -inset-1 animate-ping rounded-full" aria-hidden />)}
+                </span>
+                <span>{k(likes)}</span>
               </div>
-            )}
+              {commentsCount > 0 && (
+                <div className="flex items-center gap-1">
+                  <MessageSquare className="h-4 w-4" />
+                  <span>{k(commentsCount)}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-1">
+                <Share2 className="h-4 w-4" />
+                <span>{k(repostCount)}</span>
+              </div>
+            </div>
           </div>
 
           {/* actions */}
           <div className="mt-2">
             <div className="flex flex-wrap items-center gap-2 w-full">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={liked ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={like}
-                    disabled={busyLike}
-                    className={clsx('flex-1 min-w-[112px] gap-2 transition-transform active:scale-[0.98]', liked && 'bg-red-600 hover:bg-red-700 text-white')}
-                    aria-pressed={liked}
-                    aria-label={liked ? 'Unlike post' : 'Like post'}
-                  >
-                    {busyLike ? <Loader2 className="h-4 w-4 animate-spin" /> : (
-                      <Heart className={clsx('h-4 w-4', liked && 'text-white')} fill={liked ? 'currentColor' : 'none'} stroke={liked ? 'none' : 'currentColor'} />
-                    )}
-                    Like
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Press L to like</TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="outline" size="sm" className="flex-1 min-w-[112px] gap-2" aria-label="Add a comment" onClick={focusComment}>
-                    <MessageSquare className="h-4 w-4" /> Comment
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Press C to comment</TooltipContent>
-              </Tooltip>
-
-              <Button variant="outline" size="sm" className="flex-1 min-w-[112px] gap-2" disabled>
-                <Share2 className="h-4 w-4" /> Share
+              {/* <Tooltip>
+                <TooltipTrigger asChild> */}
+              <Button
+                variant={liked ? 'default' : 'outline'}
+                size="sm"
+                onClick={like}
+                disabled={busyLike}
+                className={clsx('flex-1 min-w-[112px] gap-2 transition-transform active:scale-[0.98]', liked && 'bg-red-600 hover:bg-red-700 text-white')}
+                aria-pressed={liked}
+                aria-label={liked ? 'Unlike post' : 'Like post'}
+              >
+                {busyLike ? <Loader2 className="h-4 w-4 animate-spin" /> : (
+                  <Heart className={clsx('h-4 w-4', liked && 'text-white')} fill={liked ? 'currentColor' : 'none'} stroke={liked ? 'none' : 'currentColor'} />
+                )}
+                Like
               </Button>
+              {/* </TooltipTrigger>
+                <TooltipContent>Press L to like</TooltipContent>
+              </Tooltip> */}
+
+              {/* <Tooltip>
+                <TooltipTrigger asChild> */}
+              <Button variant="outline" size="sm" className="flex-1 min-w-[112px] gap-2" aria-label="Add a comment" onClick={focusComment}>
+                <MessageSquare className="h-4 w-4" /> Comment
+              </Button>
+              {/* </TooltipTrigger>
+                <TooltipContent>Press C to comment</TooltipContent>
+              </Tooltip> */}
+
+              {/* Repost button with quote dialog */}
+              <Dialog open={repostOpen} onOpenChange={setRepostOpen}>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 min-w-[112px] gap-2"
+                    aria-label="Repost"
+                  >
+                    <Share2 className="h-4 w-4" />
+                    Repost
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Repost</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-3">
+                    <Textarea
+                      value={repostText}
+                      onChange={(e) => setRepostText(e.target.value)}
+                      placeholder="Add a comment (optional)"
+                      className="min-h-[100px] resize-y"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button variant="ghost" onClick={() => setRepostOpen(false)}>Cancel</Button>
+                      <Button onClick={doRepost} disabled={busyRepost}>
+                        {busyRepost ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                        Repost
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
           </div>
 
