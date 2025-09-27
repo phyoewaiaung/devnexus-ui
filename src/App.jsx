@@ -119,7 +119,7 @@ function AuthShell() {
       <div className="hidden lg:flex items-center justify-center p-12 bg-[oklch(1_0_0)] dark:bg-[oklch(0.16_0.03_265)] relative">
         <div className="absolute inset-6 rounded-3xl bg-background/50 backdrop-blur-2xl" />
         <div className="relative max-w-md text-center">
-          <img src="/src/assets/transparent.png" alt="DevNexus" className="w-[20vw] h-[10vw] object-contain mx-auto" />
+          <img src="/transparent.png" alt="DevNexus" className="w-[20vw] h-[10vw] object-contain mx-auto" />
           <h1 className="text-5xl font-bold bg-gradient-to-r from-[#3C81D2] to-[#8B5CF6] bg-clip-text text-transparent mb-2">
             DevNexus
           </h1>

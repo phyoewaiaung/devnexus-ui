@@ -29,6 +29,8 @@ export default defineConfig({
       ]
     },
     workbox: {
+      cleanupOutdatedCaches: true,
+      clientsClaim: true,
       navigateFallback: '/index.html',   // SPA fallback for react-router
       globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
       runtimeCaching: [
