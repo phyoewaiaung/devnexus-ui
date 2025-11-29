@@ -68,7 +68,7 @@ export default function RegisterPage() {
   const [busy, setBusy] = useState(false);
 
   const nav = useNavigate();
-  const { register: registerUser, login } = useAuth();
+  const { register: registerUser, login, refresh } = useAuth();
 
   const form = useForm({
     resolver: zodResolver(registerSchema),
@@ -113,7 +113,14 @@ export default function RegisterPage() {
         await uploadAvatar(avatarFile);
       }
 
-      // 4) go home
+      // 4) refresh user data so avatar shows immediately
+      try {
+        await refresh();
+      } catch (e) {
+        console.error('Failed to refresh user after registration', e);
+      }
+
+      // 5) go home
       nav("/");
     } catch (error) {
       setErr(error?.message || "Registration failed. Please try again.");

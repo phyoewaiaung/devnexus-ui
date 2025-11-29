@@ -2,7 +2,7 @@ import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Avatar, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
@@ -124,6 +124,8 @@ export default function PostComposer({ onCreated }) {
 
   const remaining = MAX_LEN - text.length;
   const progress = Math.min(100, Math.round((text.length / MAX_LEN) * 100));
+  const avatarSrc = user?.avatarUrl || user?.avatar || '';
+  const avatarFallback = user?.name?.[0]?.toUpperCase() || user?.username?.[0]?.toUpperCase() || '👤';
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
 
@@ -281,7 +283,8 @@ export default function PostComposer({ onCreated }) {
       >
         <div className="flex items-start gap-3">
           <Avatar className="h-10 w-10 ring-1 ring-neutral-200 dark:ring-neutral-800 flex-shrink-0">
-            <AvatarImage src={user.avatarUrl} />
+            <AvatarImage src={avatarSrc} alt={user?.name || user?.username || 'Profile avatar'} />
+            <AvatarFallback>{avatarFallback}</AvatarFallback>
           </Avatar>
 
           <div className="flex-1 min-w-0 space-y-3">
